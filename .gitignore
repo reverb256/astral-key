@@ -1,0 +1,49 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Nix
+result
+result-*
+.direnv
+.envrc
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.db-*
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+*.profraw
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Secrets (should be managed via sops-nix)
+secrets/
+*.key
+*.pem
+!test-certs/*.pem
