@@ -4,7 +4,8 @@
 
 use std::net::SocketAddr;
 
-use axum::{routing::get, Router};
+use axum::{routing::get, Router, response::IntoResponse};
+use axum::extract::State;
 use tokio::signal;
 use tracing::{info, warn};
 
@@ -44,8 +45,7 @@ async fn main() -> anyhow::Result<()> {
     // Build router
     let app = Router::new()
         .route("/health", get(health_handler))
-        .route("/ready", get(readiness_handler))
-        .with_state(state.clone());
+        .route("/ready", get(readiness_handler));
 
     // Add API routes
     let app = api::routes(app, state);
@@ -54,13 +54,11 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
     info!("Binding to {}", addr);
 
-    // Start server with graceful shutdown
+    // Start server
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("Server listening on {}", addr);
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(listener, app).await?;
 
     info!("Server shutdown complete");
     Ok(())
@@ -72,9 +70,35 @@ async fn health_handler() -> &'static str {
 }
 
 /// Readiness check endpoint
-async fn readiness_handler() -> &'static str {
-    // TODO: Check database, redis, vaultwarden connectivity
-    "READY"
+async fn readiness_handler(State(state): State<AppState>) -> impl IntoResponse {
+    // Check database connectivity
+    if let Err(e) = state.db.health_check().await {
+        tracing::error!("Database health check failed: {}", e);
+        let body = serde_json::json!({
+            "status": "not_ready",
+            "error": "database_unavailable"
+        });
+        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(body));
+    }
+
+    // Check Redis connectivity
+    if let Err(e) = state.cache.health_check().await {
+        tracing::error!("Redis health check failed: {}", e);
+        let body = serde_json::json!({
+            "status": "not_ready",
+            "error": "redis_unavailable"
+        });
+        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(body));
+    }
+
+    let body = serde_json::json!({
+        "status": "ready",
+        "checks": {
+            "database": true,
+            "redis": true
+        }
+    });
+    (axum::http::StatusCode::OK, axum::Json(body))
 }
 
 /// Graceful shutdown signal handler
