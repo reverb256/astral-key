@@ -21,7 +21,7 @@ tokio-util = { version = "0.7", features = ["codec"] }
 # Web framework
 axum = { version = "0.7", features = ["ws", "macros"] }
 tower = { version = "0.4", features = ["full"] }
-tower-http = { version = "0.5", features = ["cors", "compression", "trace", "fs"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
 hyper = { version = "1.0", features = ["full"] }
 
 # Serialization
@@ -38,7 +38,7 @@ ethers = { version = "2.0", features = ["rustls", "ws"] }
 siwe = "0.6"
 
 # FIDO2/WebAuthn
-webauthn-rs = { version = "0.5", features = ["danger-allow-statement-generate-challenge"] }
+webauthn-rs = { version = "0.5" }
 
 # JWT
 jsonwebtoken = "9.2"
@@ -49,6 +49,7 @@ base64 = "0.21"
 hex = "0.4"
 sha2 = "0.10"
 hmac = "0.12"
+rand = "0.8"
 
 # HTTP client
 reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
@@ -91,6 +92,7 @@ once_cell = "1.19"
 async-trait = "0.1"
 futures = "0.3"
 bytes = "1.5"
+num_cpus = "1.16"
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -104,9 +106,10 @@ rand = "0.8"
 default = []
 production = []
 
-[[bench]]
-name = "auth_benchmark"
-harness = false
+# Benches are not yet implemented
+# [[bench]]
+# name = "auth_benchmark"
+# harness = false
 
 [profile.release]
 opt-level = 3

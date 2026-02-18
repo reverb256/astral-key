@@ -4,11 +4,23 @@
 
 Astral Key provides a RESTful API for Web3, FIDO2, and Passkey authentication.
 
+**⚠️ API Status: Most endpoints are NOT YET IMPLEMENTED**
+
+This documentation describes the **planned** API. Currently, most endpoints return "not implemented" errors. See [STATUS.md](../STATUS.md) for implementation progress.
+
 ## Base URL
 
 ```
 https://api.astral-key.local/api/v1
 ```
+
+### Current Working Endpoints
+
+Only the following endpoints currently work:
+- `GET /health` - Returns service health status ✅
+- `GET /ready` - Returns readiness status (partial) ✅
+
+All authentication endpoints are **not yet implemented**.
 
 ## Authentication
 
@@ -50,7 +62,13 @@ Returns service readiness status.
 
 ### Web3 Authentication
 
+**⚠️ Status: NOT YET IMPLEMENTED**
+
+All Web3 authentication endpoints currently return "not implemented" errors. Implementation is planned for Phase 4 (Week 6-7). See [ROADMAP.md](../ROADMAP.md).
+
 #### POST /auth/web3/nonce
+
+**Status:** Returns placeholder nonce (not yet stored in database)
 Request a nonce for SIWE (Sign-In with Ethereum).
 
 **Response:**
@@ -63,6 +81,8 @@ Request a nonce for SIWE (Sign-In with Ethereum).
 ```
 
 #### POST /auth/web3/verify
+
+**Status:** Returns "not implemented" error
 Verify Web3 signature and authenticate.
 
 **Request:**
@@ -89,7 +109,13 @@ Verify Web3 signature and authenticate.
 
 ### FIDO2/Passkey Authentication
 
+**⚠️ Status: NOT YET IMPLEMENTED**
+
+All FIDO2/Passkey authentication endpoints currently return "not implemented" errors. Implementation is planned for Phase 3 (Week 4-6) as the **PRIMARY FOCUS**. See [ROADMAP.md](../ROADMAP.md).
+
 #### POST /auth/fido2/register/options
+
+**Status:** Returns "not implemented" error
 Get registration options for a new passkey.
 
 **Response:**

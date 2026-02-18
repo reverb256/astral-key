@@ -16,6 +16,9 @@ pub enum AuthError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
+    #[error("Cache error: {0}")]
+    Cache(String),
+
     #[error("Redis error: {0}")]
     Redis(String),
 
@@ -30,6 +33,9 @@ pub enum AuthError {
 
     #[error("Vaultwarden error: {0}")]
     Vaultwarden(String),
+
+    #[error("Config error: {0}")]
+    Config(String),
 
     #[error("Validation error: {0}")]
     Validation(String),
@@ -63,6 +69,10 @@ impl IntoResponse for AuthError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal database error".to_string(),
             ),
+            AuthError::Cache(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal cache error".to_string(),
+            ),
             AuthError::Redis(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal cache error".to_string(),
@@ -71,6 +81,7 @@ impl IntoResponse for AuthError {
             AuthError::Web3(msg) => (StatusCode::BAD_REQUEST, msg),
             AuthError::Fido2(msg) => (StatusCode::BAD_REQUEST, msg),
             AuthError::Vaultwarden(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            AuthError::Config(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             AuthError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
             AuthError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
             AuthError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
