@@ -1,0 +1,21 @@
+# Code Owners for astral-key
+# See https://docs.github.com/en/repositories/managing-your-repositorys-health-and-settings/defining-the-owners-of-a-codebase
+
+# All code
+* @reverb256
+
+# Rust authentication logic
+/src/** @reverb256
+Cargo.toml @reverb256
+Cargo.lock @reverb256
+
+# Database migrations
+/migrations/** @reverb256
+
+# Infrastructure
+/docker/** @reverb256
+Dockerfile @reverb256
+*.nix @reverb256
+
+# CI/CD
+.github/** @reverb256
