@@ -95,9 +95,14 @@ pub struct Fido2Config {
     pub rp_id: String,
     #[serde(rename = "rp_name", default = "default_rp_name")]
     pub rp_name: String,
-    pub origin: String,
+    #[serde(default = "default_origins")]
+    pub origins: Vec<String>,
     #[serde(default = "default_attestation")]
     pub attestation: String,
+}
+
+fn default_origins() -> Vec<String> {
+    vec!["http://localhost:8080".to_string()]
 }
 
 fn default_rp_name() -> String {
@@ -196,8 +201,10 @@ impl Config {
                     .unwrap_or_else(|_| "localhost".to_string()),
                 rp_name: std::env::var("FIDO2_RP_NAME")
                     .unwrap_or_else(|_| "Astral Key".to_string()),
-                origin: std::env::var("FIDO2_ORIGIN")
-                    .unwrap_or_else(|_| "http://localhost:8080".to_string()),
+                origins: std::env::var("FIDO2_ORIGINS")
+                    .ok()
+                    .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+                    .unwrap_or_else(default_origins),
                 attestation: std::env::var("FIDO2_ATTESTATION")
                     .unwrap_or_else(|_| "indirect".to_string()),
             },

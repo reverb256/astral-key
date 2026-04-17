@@ -38,7 +38,9 @@ ethers = { version = "2.0", features = ["rustls", "ws"] }
 siwe = "0.6"
 
 # FIDO2/WebAuthn
-webauthn-rs = { version = "0.5" }
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation", "danger-credential-internals"] }
+webauthn-rs-core = "0.5"
+url = "2.5"
 
 # JWT
 jsonwebtoken = "9.2"

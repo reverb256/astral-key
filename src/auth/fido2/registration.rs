@@ -1,111 +1,183 @@
-//! Astral Key - FIDO2 registration flow
+//! Astral Key - FIDO2 registration flow with webauthn-rs
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use std::time::Duration;
 use uuid::Uuid;
+use webauthn_rs::prelude::*;
+use webauthn_rs_core::proto::{AuthenticatorAttestationResponseRaw, RegistrationExtensionsClientOutputs};
 
+use crate::auth::fido2::Fido2Service;
 use crate::auth::fido2::types::{
-    AllowCredential, AuthenticationChallenge, AuthenticationRequest, AuthenticationResponse,
-    PublicKeyCredentialParameters, RegistrationChallenge, RegistrationRequest, RegistrationResult,
-    RelyingParty, WebauthnUser,
+    PublicKeyCredentialParameters, RelyingParty, RegistrationChallenge, RegistrationRequest,
+    RegistrationResult, WebauthnUser,
 };
-use crate::cache::pool::RedisPool;
+use crate::db::models::Fido2Credential;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;
 
-/// Challenge storage key prefix
-const CHALLENGE_PREFIX: &str = "fido2_challenge:";
-
-/// Start FIDO2 registration
+/// Start FIDO2 registration - generate credential creation options
 pub async fn start_registration(
     state: &AppState,
     user_id: Uuid,
     username: &str,
     display_name: &str,
 ) -> Result<RegistrationChallenge> {
-    // Generate challenge
-    let challenge_value = Uuid::new_v4().as_bytes().to_vec();
-    let challenge_b64 = URL_SAFE_NO_PAD.encode(&challenge_value);
+    let fido2 = state
+        .fido2
+        .as_ref()
+        .ok_or_else(|| AuthError::Internal("FIDO2 service not initialized".to_string()))?;
 
-    // Store challenge in cache (5 minute TTL)
-    let challenge_key = format!("{}{}:{}", CHALLENGE_PREFIX, user_id, "register");
-    state
-        .cache
-        .set_with_expiry(&challenge_key, &challenge_b64, 300)
-        .await?;
+    // Get any existing credentials for this user (for exclusion)
+    let pool = state.db.inner();
+    let existing_credentials = Fido2Credential::get_by_user(pool, user_id).await?;
 
-    // Create user entity
+    // Convert existing credentials to CredentialID format for exclusion
+    let exclude_credentials: Option<Vec<CredentialID>> = if existing_credentials.is_empty() {
+        None
+    } else {
+        Some(
+            existing_credentials
+                .iter()
+                .filter_map(|cred| {
+                    // Deserialize the Passkey to get the credential ID
+                    let passkey: Passkey = serde_json::from_str(&cred.public_key).ok()?;
+                    Some(passkey.cred_id().clone())
+                })
+                .collect(),
+        )
+    };
+
+    // Generate registration challenge using webauthn-rs
+    let (ccr, reg_state) = fido2
+        .webauthn()
+        .start_passkey_registration(user_id, username, display_name, exclude_credentials)
+        .map_err(|e| AuthError::Internal(format!("Failed to start registration: {}", e)))?;
+
+    // Serialize registration state for storage
+    let reg_state_json =
+        serde_json::to_string(&reg_state).map_err(|e| {
+            AuthError::Internal(format!("Failed to serialize registration state: {}", e))
+        })?;
+
+    // Store state in cache (5 minute TTL)
+    fido2.store_state(user_id, "register", reg_state_json).await?;
+
+    // Convert CreationChallengeResponse to our RegistrationChallenge format
+    let challenge = serde_json::to_string(&ccr.public_key.challenge)
+        .map_err(|e| AuthError::Internal(format!("Failed to serialize challenge: {}", e)))?;
     let user = WebauthnUser {
-        id: URL_SAFE_NO_PAD.encode(user_id.as_bytes()),
-        name: username.to_string(),
-        display_name: display_name.to_string(),
+        id: serde_json::to_string(&ccr.public_key.user.id)
+            .map_err(|e| AuthError::Internal(format!("Failed to serialize user ID: {}", e)))?,
+        name: ccr.public_key.user.name,
+        display_name: ccr.public_key.user.display_name,
     };
-
-    // Create relying party
     let rp = RelyingParty {
-        id: state.config.fido2.rp_id.clone(),
-        name: state.config.fido2.rp_name.clone(),
+        id: ccr.public_key.rp.id,
+        name: ccr.public_key.rp.name,
     };
 
-    // Public key credential parameters
-    let pub_key_cred_params = vec![
-        PublicKeyCredentialParameters {
+    // Convert pub_key_cred_params
+    let pub_key_cred_params = ccr
+        .public_key
+        .pub_key_cred_params
+        .iter()
+        .map(|alg| PublicKeyCredentialParameters {
             type_: "public-key".to_string(),
-            alg: -7, // ES256
-        },
-        PublicKeyCredentialParameters {
-            type_: "public-key".to_string(),
-            alg: -257, // RS256
-        },
-    ];
+            alg: alg.alg,
+        })
+        .collect();
 
     Ok(RegistrationChallenge {
-        challenge: challenge_b64,
+        challenge,
         user,
         rp,
         pub_key_cred_params,
-        timeout: 60000, // 60 seconds
+        timeout: ccr.public_key.timeout.unwrap_or(60000) as u64,
     })
 }
 
-/// Finish FIDO2 registration
+/// Finish FIDO2 registration - verify attestation and extract credential
 pub async fn finish_registration(
     state: &AppState,
     user_id: Uuid,
     request: RegistrationRequest,
 ) -> Result<RegistrationResult> {
-    // Validate request
-    if request.type_ != "public-key" {
-        return Err(AuthError::BadRequest("Invalid credential type".to_string()));
-    }
+    let fido2 = state
+        .fido2
+        .as_ref()
+        .ok_or_else(|| AuthError::Internal("FIDO2 service not initialized".to_string()))?;
 
-    // Extract credential ID and public key from attestation object
-    // For now, we'll store base64-encoded data
-    // In production, use webauthn-rs to properly verify attestation
+    // Retrieve registration state from cache
+    let reg_state_json = fido2
+        .get_state(user_id, "register")
+        .await?
+        .ok_or_else(|| AuthError::BadRequest("Registration challenge expired or not found".to_string()))?;
 
-    let credential_id = request.raw_id.clone();
+    // Deserialize registration state
+    let reg_state: PasskeyRegistration = serde_json::from_str(&reg_state_json).map_err(|e| {
+        AuthError::Internal(format!("Failed to deserialize registration state: {}", e))
+    })?;
 
-    // Decode the attestation object to extract public key
-    // For simplicity, we'll store the entire attestation object as the public key
-    // This should be replaced with proper WebAuthn verification
-    let attestation_object = &request.response.attestation_object;
-    let public_key = attestation_object.clone(); // Store attestation object for now
+    // Convert RegistrationRequest to RegisterPublicKeyCredential
+    // Helper function to decode base64url
+    let decode_b64 = |s: &str| -> Result<Vec<u8>> {
+        URL_SAFE_NO_PAD
+            .decode(s)
+            .map_err(|e| AuthError::BadRequest(format!("Invalid base64url: {}", e)))
+    };
+
+    let reg_credential = RegisterPublicKeyCredential {
+        id: request.id.clone(),
+        raw_id: Base64UrlSafeData::from(decode_b64(&request.raw_id)?),
+        response: AuthenticatorAttestationResponseRaw {
+            client_data_json: Base64UrlSafeData::from(decode_b64(&request.response.client_data_json)?),
+            attestation_object: Base64UrlSafeData::from(decode_b64(&request.response.attestation_object)?),
+            transports: None,
+        },
+        type_: request.type_,
+        extensions: RegistrationExtensionsClientOutputs {
+            appid: None,
+            cred_props: None,
+            hmac_secret: None,
+            cred_protect: None,
+            min_pin_length: None,
+        },
+    };
+
+    // Verify registration using webauthn-rs (full cryptographic verification)
+    let passkey = fido2
+        .webauthn()
+        .finish_passkey_registration(&reg_credential, &reg_state)
+        .map_err(|e| {
+            // Provide detailed error message for debugging
+            AuthError::BadRequest(format!("Attestation verification failed: {}", e))
+        })?;
+
+    // Consume the challenge (one-time use)
+    fido2.consume_state(user_id, "register").await?;
+
+    // Extract credential data for storage
+    let credential_id = serde_json::to_string(passkey.cred_id())
+        .map_err(|e| AuthError::Internal(format!("Failed to serialize credential ID: {}", e)))?;
+
+    // Store the full Passkey as JSON for later use
+    let public_key = serde_json::to_string(&passkey)
+        .map_err(|e| AuthError::Internal(format!("Failed to serialize passkey: {}", e)))?;
+
+    // For new passkeys, counter starts at 0
+    let counter = 0;
+
+    // Extract transports if available (from credential)
+    let transports = None; // Can be extracted from passkey if needed
 
     Ok(RegistrationResult {
         credential_id,
         public_key,
-        counter: 0,
-        transports: None, // TODO: Extract from response
+        counter,
+        transports,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_start_registration() {
-        // Requires database and cache connection
-    }
 }

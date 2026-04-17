@@ -6,6 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::auth::fido2::Fido2Service;
 use crate::auth::jwt::JwtService;
 use crate::cache::pool::RedisPool;
 use crate::config::Config;
@@ -23,8 +24,8 @@ pub struct AppState {
 
     // Auth services
     pub jwt: Option<JwtService>,
+    pub fido2: Option<Fido2Service>,
 
-    // TODO: Add FIDO2 service
     // TODO: Add Web3 service
     // TODO: Add Vaultwarden client
 }
@@ -64,6 +65,18 @@ impl AppState {
         // TODO: Initialize Web3 service
         // TODO: Initialize Vaultwarden client
 
+        // Initialize FIDO2 service
+        let fido2 = match Fido2Service::new(&config.fido2, cache.clone()) {
+            Ok(service) => {
+                tracing::info!("FIDO2 service initialized");
+                Some(service)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize FIDO2 service: {}", e);
+                None
+            }
+        };
+
         tracing::info!("Application state initialized");
 
         Ok(Self {
@@ -71,6 +84,7 @@ impl AppState {
             db,
             cache,
             jwt,
+            fido2,
         })
     }
 
