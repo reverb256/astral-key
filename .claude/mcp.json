@@ -1,0 +1,17 @@
+{
+  "$schema": "https://claude.ai/api/docs/schemas/mcp.json",
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-context7"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"]
+    }
+  },
+  "documentation": {
+    "context7": "Live documentation lookup for Rust libraries (axum, sqlx, ethers-rs, webauthn-rs, tokio)",
+    "github": "GitHub integration for issues, PRs, and CI/CD workflow management"
+  }
+}

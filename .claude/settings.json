@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "PostToolUse": [
+    {
+      "matcher": {
+        "tools": ["Edit", "Write"]
+      },
+      "hooks": [
+        {
+          "type": "command",
+          "command": "cargo fmt"
+        }
+      ]
+    },
+    {
+      "matcher": {
+        "tools": ["Edit", "Write"]
+      },
+      "hooks": [
+        {
+          "type": "command",
+          "command": "cargo test --lib $(basename {{file}} src/ .rs | sed 's/_/-/g'):: 2>/dev/null || true",
+          "background": true
+        }
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": {
+        "tools": ["Edit", "Write"],
+        "pathGlob": ".env*,*.key,*.pem,*.p12,secrets/*,.secrets/*,Cargo.lock"
+      },
+      "hooks": [
+        {
+          "type": "callback",
+          "callback": "UserPromptSubmit"
+        }
+      ]
+    }
+  ],
+  "permissions": {
+    "deny": [
+      "Edit(.env*)",
+      "Edit(*.key)",
+      "Edit(*.pem)",
+      "Edit(*.p12)",
+      "Edit(secrets/*)",
+      "Edit(.secrets/*)",
+      "Edit(Cargo.lock)"
+    ],
+    "allow": [
+      "Edit",
+      "Write",
+      "Read",
+      "Bash(cargo fmt*)",
+      "Bash(cargo test*)",
+      "Bash(cargo clippy*)",
+      "Bash(cargo build*)",
+      "Bash(sqlx migrate*)",
+      "Bash(just *)",
+      "Bash(just fmt)",
+      "Bash(just lint)",
+      "Bash(just test)"
+    ]
+  },
+  "env": {
+    "RUST_BACKTRACE": "1"
+  }
+}
