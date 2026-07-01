@@ -57,6 +57,9 @@ pub enum AuthError {
 
     #[error("Bad request: {0}")]
     BadRequest(String),
+
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
 }
 
 /// Result type alias
@@ -92,6 +95,7 @@ impl IntoResponse for AuthError {
             ),
             AuthError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             AuthError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+            AuthError::NotImplemented(msg) => (StatusCode::NOT_IMPLEMENTED, msg),
         };
 
         let body = Json(json!({
