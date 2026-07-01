@@ -3,13 +3,13 @@
 //! Route definitions for the HTTP API.
 
 use axum::{
+    middleware,
     routing::{delete, get, post},
     Router,
-    middleware,
 };
 
-use crate::state::AppState;
 use crate::auth::jwt::middleware::jwt_auth_middleware;
+use crate::state::AppState;
 
 use super::handlers;
 
@@ -38,7 +38,10 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
         .route("/users/me", get(handlers::user::me))
         .route("/users/me", post(handlers::user::update))
         .route("/users/me", delete(handlers::user::delete))
-        .route("/users/me/security-keys", get(handlers::user::security_keys))
+        .route(
+            "/users/me/security-keys",
+            get(handlers::user::security_keys),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             jwt_auth_middleware,
@@ -62,7 +65,11 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
         // Session refresh (public - uses refresh token)
         .route("/sessions/refresh", post(handlers::session::refresh));
 
+    // Merge OIDC routes for oauth2-proxy
+    let oidc_routes = super::handlers::oidc::oidc_routes();
+
     router
         .nest("/api/v1", public_routes.merge(protected_routes))
+        .merge(oidc_routes)
         .with_state(state)
 }

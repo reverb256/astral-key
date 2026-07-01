@@ -47,7 +47,9 @@ async fn create_test_app() -> axum::Router {
     };
 
     // Create test state
-    let state = AppState::new(config).await.expect("Failed to create test state");
+    let state = AppState::new(config)
+        .await
+        .expect("Failed to create test state");
 
     // Create router
     let app = axum::Router::new()
@@ -135,7 +137,9 @@ async fn test_web3_verify_signature() {
         .await
         .unwrap();
 
-    let nonce_body = hyper::body::to_bytes(nonce_response.into_body()).await.unwrap();
+    let nonce_body = hyper::body::to_bytes(nonce_response.into_body())
+        .await
+        .unwrap();
     let nonce_json: serde_json::Value = serde_json::from_slice(&nonce_body).unwrap();
     let nonce = nonce_json["nonce"].as_str().unwrap();
     let message_template = nonce_json["message_template"].as_str().unwrap();

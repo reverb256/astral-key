@@ -5,9 +5,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::auth::web3::{generate_nonce, generate_siwe_message, store_nonce, validate_nonce, consume_nonce};
-use crate::auth::web3::siwe::verify_siwe_signature;
 use crate::auth::jwt::TokenPair;
+use crate::auth::web3::siwe::verify_siwe_signature;
+use crate::auth::web3::{
+    consume_nonce, generate_nonce, generate_siwe_message, store_nonce, validate_nonce,
+};
 use crate::db::models::Web3Wallet;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;
@@ -48,11 +50,14 @@ pub async fn verify(
 
     // Validate nonce exists in cache
     if !validate_nonce(&state, &nonce).await? {
-        return Err(AuthError::Unauthorized("Invalid or expired nonce".to_string()));
+        return Err(AuthError::Unauthorized(
+            "Invalid or expired nonce".to_string(),
+        ));
     }
 
     // Verify SIWE signature and recover address
-    let address = verify_siwe_signature(&request.message, &request.signature, request.chain_id).await?;
+    let address =
+        verify_siwe_signature(&request.message, &request.signature, request.chain_id).await?;
 
     // Consume nonce (one-time use)
     consume_nonce(&state, &nonce).await?;
@@ -64,12 +69,9 @@ pub async fn verify(
     let pool = state.db.inner();
 
     // Try to find existing wallet
-    let wallet = Web3Wallet::get_by_address_and_chain(
-        pool,
-        &address_string,
-        request.chain_id as i32,
-    )
-    .await?;
+    let wallet =
+        Web3Wallet::get_by_address_and_chain(pool, &address_string, request.chain_id as i32)
+            .await?;
 
     let user_id = if let Some(wallet) = wallet {
         // Existing user
@@ -77,31 +79,22 @@ pub async fn verify(
     } else {
         // Create new user and wallet
         let user = crate::db::models::User::create(pool).await?;
-        Web3Wallet::create(
-            pool,
-            user.id,
-            &address_string,
-            request.chain_id as i32,
-        )
-        .await?;
+        Web3Wallet::create(pool, user.id, &address_string, request.chain_id as i32).await?;
         user.id
     };
 
     // Update last used timestamp
-    if let Some(wallet) = Web3Wallet::get_by_address_and_chain(
-        pool,
-        &address_string,
-        request.chain_id as i32,
-    )
-    .await?
+    if let Some(wallet) =
+        Web3Wallet::get_by_address_and_chain(pool, &address_string, request.chain_id as i32).await?
     {
         let _ = wallet.update_last_used(pool).await;
     }
 
     // Generate JWT tokens
-    let jwt = state.jwt.as_ref().ok_or_else(|| {
-        AuthError::Internal("JWT service not initialized".to_string())
-    })?;
+    let jwt = state
+        .jwt
+        .as_ref()
+        .ok_or_else(|| AuthError::Internal("JWT service not initialized".to_string()))?;
 
     let tokens = jwt.generate_token_pair(user_id)?;
 

@@ -3,13 +3,15 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
-use webauthn_rs_core::proto::{AuthenticatorAttestationResponseRaw, RegistrationExtensionsClientOutputs};
-
-use crate::auth::fido2::Fido2Service;
-use crate::auth::fido2::types::{
-    PublicKeyCredentialParameters, RelyingParty, RegistrationChallenge, RegistrationRequest,
-    RegistrationResult, WebauthnUser,
+use webauthn_rs_core::proto::{
+    AuthenticatorAttestationResponseRaw, RegistrationExtensionsClientOutputs,
 };
+
+use crate::auth::fido2::types::{
+    PublicKeyCredentialParameters, RegistrationChallenge, RegistrationRequest, RegistrationResult,
+    RelyingParty, WebauthnUser,
+};
+use crate::auth::fido2::Fido2Service;
 use crate::db::models::Fido2Credential;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;
@@ -53,13 +55,14 @@ pub async fn start_registration(
         .map_err(|e| AuthError::Internal(format!("Failed to start registration: {}", e)))?;
 
     // Serialize registration state for storage
-    let reg_state_json =
-        serde_json::to_string(&reg_state).map_err(|e| {
-            AuthError::Internal(format!("Failed to serialize registration state: {}", e))
-        })?;
+    let reg_state_json = serde_json::to_string(&reg_state).map_err(|e| {
+        AuthError::Internal(format!("Failed to serialize registration state: {}", e))
+    })?;
 
     // Store state in cache (5 minute TTL)
-    fido2.store_state(user_id, "register", reg_state_json).await?;
+    fido2
+        .store_state(user_id, "register", reg_state_json)
+        .await?;
 
     // Convert CreationChallengeResponse to our RegistrationChallenge format
     let challenge = serde_json::to_string(&ccr.public_key.challenge)
@@ -107,10 +110,9 @@ pub async fn finish_registration(
         .ok_or_else(|| AuthError::Internal("FIDO2 service not initialized".to_string()))?;
 
     // Retrieve registration state from cache
-    let reg_state_json = fido2
-        .get_state(user_id, "register")
-        .await?
-        .ok_or_else(|| AuthError::BadRequest("Registration challenge expired or not found".to_string()))?;
+    let reg_state_json = fido2.get_state(user_id, "register").await?.ok_or_else(|| {
+        AuthError::BadRequest("Registration challenge expired or not found".to_string())
+    })?;
 
     // Deserialize registration state
     let reg_state: PasskeyRegistration = serde_json::from_str(&reg_state_json).map_err(|e| {
@@ -129,8 +131,12 @@ pub async fn finish_registration(
         id: request.id.clone(),
         raw_id: Base64UrlSafeData::from(decode_b64(&request.raw_id)?),
         response: AuthenticatorAttestationResponseRaw {
-            client_data_json: Base64UrlSafeData::from(decode_b64(&request.response.client_data_json)?),
-            attestation_object: Base64UrlSafeData::from(decode_b64(&request.response.attestation_object)?),
+            client_data_json: Base64UrlSafeData::from(decode_b64(
+                &request.response.client_data_json,
+            )?),
+            attestation_object: Base64UrlSafeData::from(decode_b64(
+                &request.response.attestation_object,
+            )?),
             transports: None,
         },
         type_: request.type_,

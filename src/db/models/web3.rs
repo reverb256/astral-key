@@ -20,13 +20,18 @@ pub struct Web3Wallet {
 
 impl Web3Wallet {
     /// Create a new wallet for a user
-    pub async fn create(pool: &PgPool, user_id: Uuid, address: &str, chain_id: i32) -> Result<Self> {
+    pub async fn create(
+        pool: &PgPool,
+        user_id: Uuid,
+        address: &str,
+        chain_id: i32,
+    ) -> Result<Self> {
         let wallet = sqlx::query_as::<_, Web3Wallet>(
             r#"
             INSERT INTO web3_wallets (user_id, address, chain_id)
             VALUES ($1, $2, $3)
             RETURNING *
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(address)
@@ -44,7 +49,7 @@ impl Web3Wallet {
         chain_id: i32,
     ) -> Result<Option<Self>> {
         let wallet = sqlx::query_as::<_, Web3Wallet>(
-            "SELECT * FROM web3_wallets WHERE address = $1 AND chain_id = $2"
+            "SELECT * FROM web3_wallets WHERE address = $1 AND chain_id = $2",
         )
         .bind(address)
         .bind(chain_id)
@@ -57,7 +62,7 @@ impl Web3Wallet {
     /// Get all wallets for a user
     pub async fn get_by_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Self>> {
         let wallets = sqlx::query_as::<_, Web3Wallet>(
-            "SELECT * FROM web3_wallets WHERE user_id = $1 ORDER BY created_at DESC"
+            "SELECT * FROM web3_wallets WHERE user_id = $1 ORDER BY created_at DESC",
         )
         .bind(user_id)
         .fetch_all(pool)

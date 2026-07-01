@@ -2,12 +2,12 @@
 //!
 //! Passwordless authentication using WebAuthn standard with webauthn-rs.
 
-pub mod registration;
 pub mod authentication;
+pub mod registration;
 pub mod types;
 
-pub use registration::{start_registration, finish_registration};
-pub use authentication::{start_authentication, finish_authentication};
+pub use authentication::{finish_authentication, start_authentication};
+pub use registration::{finish_registration, start_registration};
 
 use url::Url;
 use uuid::Uuid;
@@ -35,8 +35,9 @@ impl Fido2Service {
         // Parse origins from config
         let mut origins = Vec::new();
         for origin_str in &config.origins {
-            let origin = Url::parse(origin_str)
-                .map_err(|e| AuthError::Config(format!("Invalid origin URL '{}': {}", origin_str, e)))?;
+            let origin = Url::parse(origin_str).map_err(|e| {
+                AuthError::Config(format!("Invalid origin URL '{}': {}", origin_str, e))
+            })?;
             origins.push(origin);
         }
 
@@ -78,28 +79,18 @@ impl Fido2Service {
         state_json: String,
     ) -> Result<()> {
         let key = format!("{}{}:{}", CHALLENGE_PREFIX, user_id, state_type);
-        self.cache
-            .set_with_expiry(&key, &state_json, 300)
-            .await?;
+        self.cache.set_with_expiry(&key, &state_json, 300).await?;
         Ok(())
     }
 
     /// Retrieve state from cache
-    pub async fn get_state(
-        &self,
-        user_id: Uuid,
-        state_type: &str,
-    ) -> Result<Option<String>> {
+    pub async fn get_state(&self, user_id: Uuid, state_type: &str) -> Result<Option<String>> {
         let key = format!("{}{}:{}", CHALLENGE_PREFIX, user_id, state_type);
         self.cache.get(&key).await.map_err(Into::into)
     }
 
     /// Consume state from cache (one-time use)
-    pub async fn consume_state(
-        &self,
-        user_id: Uuid,
-        state_type: &str,
-    ) -> Result<()> {
+    pub async fn consume_state(&self, user_id: Uuid, state_type: &str) -> Result<()> {
         let key = format!("{}{}:{}", CHALLENGE_PREFIX, user_id, state_type);
         self.cache.delete(&key).await?;
         Ok(())

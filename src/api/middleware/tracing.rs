@@ -2,12 +2,7 @@
 //!
 //! Request ID generation and distributed tracing.
 
-use axum::{
-    extract::Request,
-    http::HeaderMap,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::HeaderMap, middleware::Next, response::Response};
 use tracing::info;
 use uuid::Uuid;
 

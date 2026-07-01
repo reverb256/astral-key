@@ -92,7 +92,8 @@
             '';
           });
 
-        in {
+        in
+        {
           # Packages
           packages = {
             default = astral-key;
@@ -117,6 +118,10 @@
 
                 # API testing
                 httpie
+
+                # Build dependencies
+                openssl
+                pkg-config
 
                 # Nix tools
                 nil

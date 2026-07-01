@@ -43,8 +43,13 @@ pub async fn security_keys(State(_state): State<AppState>) -> Result<Json<serde_
 }
 
 /// Update user request
+///
+/// Decision 0002: `email` field REMOVED. Astral-key never
+/// stores plaintext email; identity is rooted in the
+/// passkey public key or SIWE wallet address. Display name
+/// remains optional and is treated as a user-chosen label,
+/// not PII.
 #[derive(Deserialize)]
 pub struct UpdateUserRequest {
     pub display_name: Option<String>,
-    pub email: Option<String>,
 }

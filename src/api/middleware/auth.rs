@@ -43,17 +43,17 @@ pub async fn jwt_auth_middleware(
     let token = &auth_header[7..]; // Skip "Bearer "
 
     // Get JWT service
-    let jwt = state.jwt.as_ref().ok_or_else(|| {
-        AuthError::Internal("JWT service not initialized".to_string())
-    })?;
+    let jwt = state
+        .jwt
+        .as_ref()
+        .ok_or_else(|| AuthError::Internal("JWT service not initialized".to_string()))?;
 
     // Validate token
     let claims = jwt.validate_access_token(token)?;
 
     // Extract user ID
-    let user_id = uuid::Uuid::parse_str(&claims.sub).map_err(|_| {
-        AuthError::Internal("Invalid user ID in token".to_string())
-    })?;
+    let user_id = uuid::Uuid::parse_str(&claims.sub)
+        .map_err(|_| AuthError::Internal("Invalid user ID in token".to_string()))?;
 
     // Add user ID to request extensions
     request

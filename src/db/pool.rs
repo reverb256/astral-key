@@ -2,8 +2,8 @@
 //!
 //! Manages PostgreSQL connection pool using SQLx.
 
-use sqlx::{PgPool, Pool, Postgres};
 use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, Pool, Postgres};
 
 use crate::config::DatabaseConfig;
 use crate::error::{AuthError, Result};
@@ -44,9 +44,7 @@ impl DbPool {
 
     /// Health check for the database connection
     pub async fn health_check(&self) -> Result<bool> {
-        sqlx::query("SELECT 1")
-            .fetch_one(&self.pool)
-            .await?;
+        sqlx::query("SELECT 1").fetch_one(&self.pool).await?;
 
         Ok(true)
     }

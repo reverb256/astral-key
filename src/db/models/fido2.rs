@@ -35,7 +35,7 @@ impl Fido2Credential {
             INSERT INTO fido2_credentials (user_id, credential_id, public_key)
             VALUES ($1, $2, $3)
             RETURNING *
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(credential_id)
@@ -49,7 +49,7 @@ impl Fido2Credential {
     /// Get credential by credential ID
     pub async fn get_by_credential_id(pool: &PgPool, credential_id: &str) -> Result<Option<Self>> {
         let credential = sqlx::query_as::<_, Fido2Credential>(
-            "SELECT * FROM fido2_credentials WHERE credential_id = $1"
+            "SELECT * FROM fido2_credentials WHERE credential_id = $1",
         )
         .bind(credential_id)
         .fetch_optional(pool)
@@ -60,12 +60,11 @@ impl Fido2Credential {
 
     /// Get credential by internal ID
     pub async fn get_by_id(pool: &PgPool, id: Uuid) -> Result<Option<Self>> {
-        let credential = sqlx::query_as::<_, Fido2Credential>(
-            "SELECT * FROM fido2_credentials WHERE id = $1"
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+        let credential =
+            sqlx::query_as::<_, Fido2Credential>("SELECT * FROM fido2_credentials WHERE id = $1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?;
 
         Ok(credential)
     }
@@ -73,7 +72,7 @@ impl Fido2Credential {
     /// Get all credentials for a user
     pub async fn get_by_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Self>> {
         let credentials = sqlx::query_as::<_, Fido2Credential>(
-            "SELECT * FROM fido2_credentials WHERE user_id = $1 ORDER BY created_at DESC"
+            "SELECT * FROM fido2_credentials WHERE user_id = $1 ORDER BY created_at DESC",
         )
         .bind(user_id)
         .fetch_all(pool)
@@ -89,7 +88,7 @@ impl Fido2Credential {
             UPDATE fido2_credentials
             SET counter = $1, last_used_at = NOW()
             WHERE id = $2
-            "#
+            "#,
         )
         .bind(new_counter)
         .bind(self.id)

@@ -2,14 +2,14 @@
 //!
 //! Data models for database entities.
 
+pub mod fido2;
+pub mod nonce;
+pub mod session;
 pub mod user;
 pub mod web3;
-pub mod fido2;
-pub mod session;
-pub mod nonce;
 
+pub use fido2::Fido2Credential;
+pub use nonce::Nonce;
+pub use session::Session;
 pub use user::User;
 pub use web3::Web3Wallet;
-pub use fido2::Fido2Credential;
-pub use session::Session;
-pub use nonce::Nonce;

@@ -26,7 +26,7 @@ impl User {
             INSERT INTO users (id, created_at, updated_at)
             VALUES ($1, $2, $3)
             RETURNING *
-            "#
+            "#,
         )
         .bind(id)
         .bind(now)

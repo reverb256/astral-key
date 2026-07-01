@@ -17,12 +17,7 @@ pub fn generate_nonce() -> String {
 }
 
 /// Generate a SIWE message
-pub fn generate_siwe_message(
-    domain: &str,
-    address: &str,
-    nonce: &str,
-    chain_id: u64,
-) -> String {
+pub fn generate_siwe_message(domain: &str, address: &str, nonce: &str, chain_id: u64) -> String {
     format!(
         "{domain} wants you to sign in with your Ethereum account:\n{address}\n\nSign in to Astral Key\n\nURI: https://{domain}\nVersion: 1\nChain ID: {chain_id}\nNonce: {nonce}\nIssued At: {timestamp}\nExpiration Time: {expiration}",
         domain = domain,

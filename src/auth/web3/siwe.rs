@@ -55,7 +55,9 @@ fn parse_siwe_message(message: &str) -> Result<SiweMessage> {
     let lines: Vec<&str> = message.lines().collect();
 
     if lines.len() < 2 {
-        return Err(AuthError::BadRequest("Invalid SIWE message format".to_string()));
+        return Err(AuthError::BadRequest(
+            "Invalid SIWE message format".to_string(),
+        ));
     }
 
     // Extract domain (line 1)
@@ -114,10 +116,7 @@ fn parse_siwe_message(message: &str) -> Result<SiweMessage> {
         } else if let Some(value) = line.strip_prefix("Resources:") {
             // Parse resources
             if !value.is_empty() {
-                resources = value
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .collect();
+                resources = value.split(',').map(|s| s.trim().to_string()).collect();
             }
         } else if line.starts_with("Sign in to") || line.starts_with("Please sign") {
             in_statement = true;
@@ -166,7 +165,9 @@ fn validate_siwe_message(message: &SiweMessage, expected_chain_id: u64) -> Resul
 
     // Validate nonce (should be hex string)
     if message.nonce.is_empty() || message.nonce.len() < 8 {
-        return Err(AuthError::BadRequest("Invalid nonce in message".to_string()));
+        return Err(AuthError::BadRequest(
+            "Invalid nonce in message".to_string(),
+        ));
     }
 
     // Validate expiration
@@ -185,7 +186,9 @@ fn validate_siwe_message(message: &SiweMessage, expected_chain_id: u64) -> Resul
             .map_err(|_| AuthError::BadRequest("Invalid not-before time format".to_string()))?;
 
         if nb_time > chrono::Utc::now() {
-            return Err(AuthError::Unauthorized("Message is not yet valid".to_string()));
+            return Err(AuthError::Unauthorized(
+                "Message is not yet valid".to_string(),
+            ));
         }
     }
 
@@ -214,9 +217,9 @@ fn recover_address_from_signature(message: &str, signature: &str) -> Result<Addr
 
     // Recover address
     let sig = ethers::core::types::Signature { r, s, v };
-    let address = sig
-        .recover(message_hash)
-        .map_err(|_| AuthError::Unauthorized("Failed to recover address from signature".to_string()))?;
+    let address = sig.recover(message_hash).map_err(|_| {
+        AuthError::Unauthorized("Failed to recover address from signature".to_string())
+    })?;
 
     Ok(address)
 }
