@@ -9,6 +9,19 @@
 #   docker-compose up -d    # Start all services
 #   docker-compose down     # Stop all services
 #   docker-compose logs -f  # View logs
+#
+# ---------------------------------------------------------------------------
+# REQUIRED for the astral-key app service:
+#   JWT_SECRET (or JWT_SECRET_FILE) — at least 32 bytes.
+#   Astral Key now panics at startup if this is missing (no insecure default).
+#
+#   Generate a dev secret:
+#     export JWT_SECRET=$(openssl rand -hex 32)
+#
+#   Or generate a file-based secret:
+#     echo "$(openssl rand -hex 32)" > ./.secrets/jwt_secret && chmod 600 ./.secrets/jwt_secret
+#     export JWT_SECRET_FILE=./.secrets/jwt_secret
+# ---------------------------------------------------------------------------
 
 version: "3.8"
 
