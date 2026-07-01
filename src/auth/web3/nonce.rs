@@ -1,7 +1,6 @@
 //! Astral Key - Web3 nonce generation and management
 
 use rand::Rng;
-use uuid::Uuid;
 
 use crate::error::Result;
 use crate::state::AppState;

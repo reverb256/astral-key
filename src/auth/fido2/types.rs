@@ -1,7 +1,6 @@
 //! Astral Key - FIDO2 types
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Registration challenge response
 #[derive(Debug, Clone, Serialize, Deserialize)]

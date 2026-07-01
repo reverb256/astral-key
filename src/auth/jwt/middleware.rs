@@ -6,13 +6,10 @@ use axum::{
     async_trait,
     extract::{FromRequestParts, Request, State},
     http::request::Parts,
-    http::HeaderMap,
     middleware::Next,
     response::Response,
 };
-use std::sync::Arc;
 
-use crate::auth::jwt::JwtService;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;
 

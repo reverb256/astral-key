@@ -47,7 +47,7 @@ impl AppState {
         // Both missing, too short, or unreadable → process panics with an
         // actionable error. This replaces the previous behaviour of silently
         // using a known placeholder secret if env vars were unset.
-        let jwt_secret = load_jwt_secret(&config).unwrap_or_else(|err| {
+        let (jwt_secret, jwt_source) = load_jwt_secret(&config).unwrap_or_else(|err| {
             panic!(
                 "{}\n\
                  \nResolution order:\n\
@@ -62,6 +62,13 @@ impl AppState {
                 err
             );
         });
+
+        // Ops visibility: log which path the secret came from (env vs file).
+        // The secret value itself is never logged.
+        tracing::info!(
+            source = jwt_source,
+            "JWT signing secret loaded (value not logged)"
+        );
 
         let jwt = Some(
             JwtService::new(
@@ -114,22 +121,24 @@ impl AppState {
     }
 }
 
-/// Resolve a JWT signing secret from environment variables.
+/// Resolve a JWT signing secret from environment variables, and report which
+/// source it was loaded from for ops visibility.
 ///
 /// Resolution order:
 ///   1. `JWT_SECRET` env var — must be >= 32 bytes after trim
 ///   2. `JWT_SECRET_FILE` env var — path to file whose contents are >= 32 bytes
 ///
 /// Returns `Err` with a human-readable explanation when neither path yields a
-/// valid secret. Callers should map the error to a process-level panic with
-/// actionable instructions rather than continuing with an insecure default.
-fn load_jwt_secret(config: &Config) -> std::result::Result<String, String> {
+/// valid secret. The returned `&'static str` source label is safe to log.
+fn load_jwt_secret(
+    config: &Config,
+) -> std::result::Result<(String, &'static str), String> {
     const MIN_BYTES: usize = 32;
 
     if let Ok(s) = std::env::var("JWT_SECRET") {
         let trimmed = s.trim();
         if trimmed.len() >= MIN_BYTES {
-            return Ok(trimmed.to_string());
+            return Ok((trimmed.to_string(), "env:JWT_SECRET"));
         }
         return Err(format!(
             "JWT_SECRET env var must be at least {} bytes after trim (got {} bytes)",
@@ -143,7 +152,7 @@ fn load_jwt_secret(config: &Config) -> std::result::Result<String, String> {
             Ok(contents) => {
                 let trimmed = contents.trim();
                 if trimmed.len() >= MIN_BYTES {
-                    Ok(trimmed.to_string())
+                    Ok((trimmed.to_string(), "file:JWT_SECRET_FILE"))
                 } else {
                     Err(format!(
                         "JWT secret in {} must be at least {} bytes after trim (got {} bytes)",

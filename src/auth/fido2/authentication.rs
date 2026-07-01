@@ -10,7 +10,6 @@ use webauthn_rs_core::proto::{
 use crate::auth::fido2::types::{
     AllowCredential, AuthenticationChallenge, AuthenticationRequest, AuthenticationResult,
 };
-use crate::auth::fido2::Fido2Service;
 use crate::db::models::Fido2Credential;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;

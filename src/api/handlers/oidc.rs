@@ -18,9 +18,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 
-use crate::error::Result;
 use crate::state::AppState;
 
 /// OIDC well-known discovery document

@@ -86,8 +86,7 @@ impl Fido2Service {
     /// Retrieve state from cache
     pub async fn get_state(&self, user_id: Uuid, state_type: &str) -> Result<Option<String>> {
         let key = format!("{}{}:{}", CHALLENGE_PREFIX, user_id, state_type);
-        self.cache.get(&key).await.map_err(Into::into)
-    }
+        self.cache.get(&key).await}
 
     /// Consume state from cache (one-time use)
     pub async fn consume_state(&self, user_id: Uuid, state_type: &str) -> Result<()> {

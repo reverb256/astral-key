@@ -4,7 +4,7 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::auth::jwt::{AuthenticatedUser, JwtService};
+use crate::auth::jwt::AuthenticatedUser;
 use crate::db::models::Session;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;
