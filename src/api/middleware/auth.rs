@@ -4,12 +4,10 @@
 
 use axum::{
     extract::{Request, State},
-    http::HeaderMap,
     middleware::Next,
     response::Response,
 };
 
-use crate::auth::jwt::JwtService;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;
 

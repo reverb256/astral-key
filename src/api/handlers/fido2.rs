@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::auth::fido2::{
     finish_authentication, finish_registration, start_authentication, start_registration,
 };
-use crate::auth::jwt::{AuthenticatedUser, TokenPair};
+use crate::auth::jwt::AuthenticatedUser;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;
 
@@ -99,7 +99,7 @@ pub async fn authenticate_options(
     State(state): State<AppState>,
     Json(request): Json<AuthenticateOptionsRequest>,
 ) -> Result<Json<AuthenticationOptions>> {
-    use crate::db::models::{Fido2Credential, User};
+    use crate::db::models::User;
 
     // Get user by username from database
     let pool = state.db.inner();

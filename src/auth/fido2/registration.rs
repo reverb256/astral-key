@@ -11,7 +11,6 @@ use crate::auth::fido2::types::{
     PublicKeyCredentialParameters, RegistrationChallenge, RegistrationRequest, RegistrationResult,
     RelyingParty, WebauthnUser,
 };
-use crate::auth::fido2::Fido2Service;
 use crate::db::models::Fido2Credential;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;

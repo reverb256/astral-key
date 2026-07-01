@@ -4,11 +4,9 @@
 
 use axum::{
     extract::{Request, State},
-    http::StatusCode,
     middleware::Next,
     response::Response,
 };
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,7 +38,7 @@ impl RateLimiter {
         // Try to increment counter
         let count = self
             .cache
-            .rate_limit_increment(&key, self.window.as_secs() as u64)
+            .rate_limit_increment(&key, self.window.as_secs())
             .await?;
 
         Ok(count <= self.max_requests as u64)
@@ -50,7 +48,7 @@ impl RateLimiter {
 /// Rate limiting middleware
 pub async fn rate_limit_middleware(
     State(state): State<Arc<RateLimiter>>,
-    mut request: Request,
+    request: Request,
     next: Next,
 ) -> Result<Response> {
     // Extract IP address

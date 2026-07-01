@@ -3,9 +3,7 @@
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use uuid::Uuid;
 
-use crate::auth::jwt::TokenPair;
 use crate::auth::web3::siwe::verify_siwe_signature;
 use crate::auth::web3::{
     consume_nonce, generate_nonce, generate_siwe_message, store_nonce, validate_nonce,

@@ -1,6 +1,6 @@
 //! Astral Key - SIWE (Sign-In with Ethereum) verification
 
-use ethers::core::types::{Address, H256, U256};
+use ethers::core::types::{Address, U256};
 use std::str::FromStr;
 
 use crate::error::{AuthError, Result};

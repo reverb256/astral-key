@@ -8,7 +8,6 @@ pub mod siwe;
 pub use nonce::{
     consume_nonce, generate_nonce, generate_siwe_message, store_nonce, validate_nonce,
 };
-pub use siwe::verify_siwe_signature;
 
 use crate::cache::pool::RedisPool;
 use crate::error::Result;
