@@ -34,7 +34,10 @@ impl RedisPool {
             .await
             .map_err(|e| AuthError::Cache(format!("Redis ping failed: {}", e)))?;
 
-        tracing::info!("Redis connection pool created (pool size: {})", config.pool_size);
+        tracing::info!(
+            "Redis connection pool created (pool size: {})",
+            config.pool_size
+        );
 
         Ok(Self {
             client,
@@ -200,7 +203,9 @@ mod tests {
         let pool = RedisPool::new(&config).await.unwrap();
 
         // Set a value
-        pool.set_with_expiry("test_key", "test_value", 60).await.unwrap();
+        pool.set_with_expiry("test_key", "test_value", 60)
+            .await
+            .unwrap();
 
         // Get the value
         let value = pool.get("test_key").await.unwrap();

@@ -2,10 +2,12 @@
 //!
 //! Sign-In with Ethereum implementation.
 
-pub mod siwe;
 pub mod nonce;
+pub mod siwe;
 
-pub use nonce::{generate_nonce, generate_siwe_message, store_nonce, validate_nonce, consume_nonce};
+pub use nonce::{
+    consume_nonce, generate_nonce, generate_siwe_message, store_nonce, validate_nonce,
+};
 pub use siwe::verify_siwe_signature;
 
 use crate::cache::pool::RedisPool;

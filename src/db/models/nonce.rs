@@ -31,7 +31,7 @@ impl Nonce {
             INSERT INTO nonces (nonce, expires_at, user_id)
             VALUES ($1, $2, $3)
             RETURNING *
-            "#
+            "#,
         )
         .bind(nonce)
         .bind(expires_at)
@@ -93,7 +93,7 @@ impl Nonce {
             DELETE FROM nonces
             WHERE used_at IS NOT NULL
             AND used_at < NOW() - (MAKE_INTERVAL(days => $1))
-            "#
+            "#,
         )
         .bind(days)
         .execute(pool)

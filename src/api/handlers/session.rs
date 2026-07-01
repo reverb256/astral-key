@@ -4,7 +4,7 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::auth::jwt::{JwtService, AuthenticatedUser};
+use crate::auth::jwt::{AuthenticatedUser, JwtService};
 use crate::db::models::Session;
 use crate::error::{AuthError, Result};
 use crate::state::AppState;
@@ -15,19 +15,26 @@ pub async fn refresh(
     Json(request): Json<RefreshRequest>,
 ) -> Result<Json<TokenResponse>> {
     // Get JWT service
-    let jwt = state.jwt.as_ref().ok_or_else(|| {
-        AuthError::Internal("JWT service not initialized".to_string())
-    })?;
+    let jwt = state
+        .jwt
+        .as_ref()
+        .ok_or_else(|| AuthError::Internal("JWT service not initialized".to_string()))?;
 
     // Validate refresh token
     let claims = jwt.validate_refresh_token(&request.refresh_token)?;
-    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
-        AuthError::Internal("Invalid user ID in token".to_string())
-    })?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| AuthError::Internal("Invalid user ID in token".to_string()))?;
 
     // Check if refresh token is blacklisted
-    if state.cache.is_token_blacklisted(&request.refresh_token).await.unwrap_or(false) {
-        return Err(AuthError::Unauthorized("Token has been revoked".to_string()));
+    if state
+        .cache
+        .is_token_blacklisted(&request.refresh_token)
+        .await
+        .unwrap_or(false)
+    {
+        return Err(AuthError::Unauthorized(
+            "Token has been revoked".to_string(),
+        ));
     }
 
     // Get session from database
@@ -40,7 +47,9 @@ pub async fn refresh(
 
     // Check if session is valid
     if !session.is_valid() {
-        return Err(AuthError::Unauthorized("Session expired or revoked".to_string()));
+        return Err(AuthError::Unauthorized(
+            "Session expired or revoked".to_string(),
+        ));
     }
 
     // Check user ID matches
@@ -57,8 +66,13 @@ pub async fn refresh(
 
     // Blacklist old refresh token
     // Calculate TTL from expiration
-    let ttl = (session.expires_at - chrono::Utc::now()).num_seconds().max(0) as u64;
-    state.cache.blacklist_token(&request.refresh_token, ttl).await?;
+    let ttl = (session.expires_at - chrono::Utc::now())
+        .num_seconds()
+        .max(0) as u64;
+    state
+        .cache
+        .blacklist_token(&request.refresh_token, ttl)
+        .await?;
 
     Ok(Json(TokenResponse {
         access_token: tokens.access_token,
@@ -72,15 +86,15 @@ pub async fn logout(
     Json(request): Json<LogoutRequest>,
 ) -> Result<Json<serde_json::Value>> {
     // Get JWT service
-    let jwt = state.jwt.as_ref().ok_or_else(|| {
-        AuthError::Internal("JWT service not initialized".to_string())
-    })?;
+    let jwt = state
+        .jwt
+        .as_ref()
+        .ok_or_else(|| AuthError::Internal("JWT service not initialized".to_string()))?;
 
     // Validate refresh token
     let claims = jwt.validate_refresh_token(&request.refresh_token)?;
-    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
-        AuthError::Internal("Invalid user ID in token".to_string())
-    })?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| AuthError::Internal("Invalid user ID in token".to_string()))?;
 
     // Get session and revoke it
     let pool = state.db.inner();
@@ -93,7 +107,10 @@ pub async fn logout(
     }
 
     // Blacklist the refresh token
-    state.cache.blacklist_token(&request.refresh_token, 86400).await?;
+    state
+        .cache
+        .blacklist_token(&request.refresh_token, 86400)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "message": "Logged out successfully",

@@ -17,6 +17,7 @@ pub struct Config {
     pub fido2: Fido2Config,
     pub jwt: JwtConfig,
     pub rate_limit: RateLimitConfig,
+    pub oidc: OidcConfig,
 }
 
 /// Server configuration
@@ -141,6 +142,17 @@ pub struct RateLimitConfig {
     pub burst_size: u32,
 }
 
+/// OIDC configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcConfig {
+    #[serde(default = "default_issuer_url")]
+    pub issuer_url: String,
+}
+
+fn default_issuer_url() -> String {
+    "https://auth.lan".to_string()
+}
+
 fn default_requests_per_minute() -> u32 {
     60
 }
@@ -197,8 +209,7 @@ impl Config {
                 rpc_endpoints: HashMap::new(),
             },
             fido2: Fido2Config {
-                rp_id: std::env::var("FIDO2_RP_ID")
-                    .unwrap_or_else(|_| "localhost".to_string()),
+                rp_id: std::env::var("FIDO2_RP_ID").unwrap_or_else(|_| "localhost".to_string()),
                 rp_name: std::env::var("FIDO2_RP_NAME")
                     .unwrap_or_else(|_| "Astral Key".to_string()),
                 origins: std::env::var("FIDO2_ORIGINS")
@@ -217,6 +228,10 @@ impl Config {
             rate_limit: RateLimitConfig {
                 requests_per_minute: default_requests_per_minute(),
                 burst_size: default_burst_size(),
+            },
+            oidc: OidcConfig {
+                issuer_url: std::env::var("OIDC_ISSUER_URL")
+                    .unwrap_or_else(|_| default_issuer_url()),
             },
         };
 

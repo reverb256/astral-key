@@ -4,6 +4,7 @@
 
 pub mod fido2;
 pub mod health;
+pub mod oidc;
 pub mod session;
 pub mod user;
 pub mod web3;

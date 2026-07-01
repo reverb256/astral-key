@@ -35,7 +35,7 @@ impl Session {
             INSERT INTO sessions (user_id, refresh_token_hash, expires_at, user_agent, ip_address)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING *
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(refresh_token_hash)
@@ -59,16 +59,12 @@ impl Session {
     }
 
     /// Get session by refresh token hash
-    pub async fn get_by_refresh_token_hash(
-        pool: &PgPool,
-        hash: &str,
-    ) -> Result<Option<Self>> {
-        let session = sqlx::query_as::<_, Session>(
-            "SELECT * FROM sessions WHERE refresh_token_hash = $1"
-        )
-        .bind(hash)
-        .fetch_optional(pool)
-        .await?;
+    pub async fn get_by_refresh_token_hash(pool: &PgPool, hash: &str) -> Result<Option<Self>> {
+        let session =
+            sqlx::query_as::<_, Session>("SELECT * FROM sessions WHERE refresh_token_hash = $1")
+                .bind(hash)
+                .fetch_optional(pool)
+                .await?;
 
         Ok(session)
     }
@@ -82,7 +78,7 @@ impl Session {
             AND revoked_at IS NULL
             AND expires_at > NOW()
             ORDER BY created_at DESC
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_all(pool)
@@ -134,11 +130,7 @@ impl Session {
     }
 
     /// Update refresh token hash
-    pub async fn update_refresh_token(
-        &self,
-        pool: &PgPool,
-        new_hash: &str,
-    ) -> Result<()> {
+    pub async fn update_refresh_token(&self, pool: &PgPool, new_hash: &str) -> Result<()> {
         sqlx::query("UPDATE sessions SET refresh_token_hash = $1 WHERE id = $2")
             .bind(new_hash)
             .bind(self.id)

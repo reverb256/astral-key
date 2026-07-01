@@ -2,7 +2,6 @@
 //!
 //! Shared state across the application, including database connections,
 /// cache clients, and configuration.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,7 +24,6 @@ pub struct AppState {
     // Auth services
     pub jwt: Option<JwtService>,
     pub fido2: Option<Fido2Service>,
-
     // TODO: Add Web3 service
     // TODO: Add Vaultwarden client
 }
@@ -54,7 +52,9 @@ impl AppState {
                     Duration::from_secs(config.jwt.access_token_ttl),
                     Duration::from_secs(config.jwt.refresh_token_ttl),
                 )
-                .map_err(|e| AuthError::Internal(format!("Failed to initialize JWT service: {}", e)))?,
+                .map_err(|e| {
+                    AuthError::Internal(format!("Failed to initialize JWT service: {}", e))
+                })?,
             )
         } else {
             tracing::warn!("JWT_SECRET not set, JWT authentication will be unavailable");

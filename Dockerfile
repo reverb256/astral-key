@@ -2,7 +2,7 @@
 # Multi-stage build for minimal image size
 
 # Stage 1: Builder
-FROM rust:1.82-slim as builder
+FROM docker.io/library/rust:latest as builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -31,7 +31,7 @@ COPY migrations ./migrations
 RUN touch src/main.rs && cargo build --release
 
 # Stage 2: Runtime
-FROM debian:bookworm-slim
+FROM docker.io/library/debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

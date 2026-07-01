@@ -4,8 +4,8 @@
 
 use std::net::SocketAddr;
 
-use axum::{routing::get, Router, response::IntoResponse};
 use axum::extract::State;
+use axum::{response::IntoResponse, routing::get, Router};
 use tokio::signal;
 use tracing::{info, warn};
 
@@ -78,7 +78,10 @@ async fn readiness_handler(State(state): State<AppState>) -> impl IntoResponse {
             "status": "not_ready",
             "error": "database_unavailable"
         });
-        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(body));
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(body),
+        );
     }
 
     // Check Redis connectivity
@@ -88,7 +91,10 @@ async fn readiness_handler(State(state): State<AppState>) -> impl IntoResponse {
             "status": "not_ready",
             "error": "redis_unavailable"
         });
-        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(body));
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(body),
+        );
     }
 
     let body = serde_json::json!({

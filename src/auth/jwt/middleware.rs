@@ -3,12 +3,12 @@
 //! Axum middleware for validating JWT tokens on protected routes.
 
 use axum::{
-    extract::{Request, State, FromRequestParts},
+    async_trait,
+    extract::{FromRequestParts, Request, State},
+    http::request::Parts,
     http::HeaderMap,
     middleware::Next,
     response::Response,
-    async_trait,
-    http::request::Parts,
 };
 use std::sync::Arc;
 
@@ -78,17 +78,25 @@ pub async fn jwt_auth_middleware(
         .validate_access_token(token)?;
 
     // Check if token is blacklisted
-    if state.cache.is_token_blacklisted(token).await.unwrap_or(false) {
-        return Err(AuthError::Unauthorized("Token has been revoked".to_string()));
+    if state
+        .cache
+        .is_token_blacklisted(token)
+        .await
+        .unwrap_or(false)
+    {
+        return Err(AuthError::Unauthorized(
+            "Token has been revoked".to_string(),
+        ));
     }
 
     // Extract user ID
-    let user_id = uuid::Uuid::parse_str(&claims.sub).map_err(|_| {
-        AuthError::Internal("Invalid user ID in token".to_string())
-    })?;
+    let user_id = uuid::Uuid::parse_str(&claims.sub)
+        .map_err(|_| AuthError::Internal("Invalid user ID in token".to_string()))?;
 
     // Add user ID to request extensions
-    request.extensions_mut().insert(AuthenticatedUser { user_id });
+    request
+        .extensions_mut()
+        .insert(AuthenticatedUser { user_id });
 
     Ok(next.run(request).await)
 }

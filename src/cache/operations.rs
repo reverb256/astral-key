@@ -41,7 +41,12 @@ impl CacheOperations {
     }
 
     /// Store session data
-    pub async fn store_session(&self, session_id: &str, data: &str, expiry_seconds: u64) -> Result<()> {
+    pub async fn store_session(
+        &self,
+        session_id: &str,
+        data: &str,
+        expiry_seconds: u64,
+    ) -> Result<()> {
         let key = format!("{}{}", SESSION_PREFIX, session_id);
         self.pool.set_with_expiry(&key, data, expiry_seconds).await
     }
@@ -83,7 +88,9 @@ impl CacheOperations {
             .arg(&key)
             .query_async(&mut conn)
             .await
-            .map_err(|e| crate::error::AuthError::Cache(format!("Failed to check rate limit: {}", e)))?;
+            .map_err(|e| {
+                crate::error::AuthError::Cache(format!("Failed to check rate limit: {}", e))
+            })?;
 
         let count = if let Some(val) = exists {
             val.parse::<u64>().unwrap_or(0) + 1
@@ -98,7 +105,9 @@ impl CacheOperations {
             .arg(count)
             .query_async::<redis::aio::ConnectionManager, ()>(&mut conn)
             .await
-            .map_err(|e| crate::error::AuthError::Cache(format!("Failed to set rate limit: {}", e)))?;
+            .map_err(|e| {
+                crate::error::AuthError::Cache(format!("Failed to set rate limit: {}", e))
+            })?;
 
         Ok(count)
     }

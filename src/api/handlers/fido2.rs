@@ -4,8 +4,10 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::auth::fido2::{start_registration, finish_registration, start_authentication, finish_authentication};
-use crate::auth::jwt::{TokenPair, AuthenticatedUser};
+use crate::auth::fido2::{
+    finish_authentication, finish_registration, start_authentication, start_registration,
+};
+use crate::auth::jwt::{AuthenticatedUser, TokenPair};
 use crate::error::{AuthError, Result};
 use crate::state::AppState;
 
@@ -35,10 +37,14 @@ pub async fn register_options(
             name: challenge.user.name,
             display_name: challenge.user.display_name,
         },
-        pub_key_cred_params: challenge.pub_key_cred_params.into_iter().map(|p| PublicKeyCredentialParameters {
-            type_: p.type_,
-            alg: p.alg,
-        }).collect(),
+        pub_key_cred_params: challenge
+            .pub_key_cred_params
+            .into_iter()
+            .map(|p| PublicKeyCredentialParameters {
+                type_: p.type_,
+                alg: p.alg,
+            })
+            .collect(),
         timeout: challenge.timeout,
         attestation: "none".to_string(),
         authenticator_selection: AuthenticatorSelection {
@@ -93,7 +99,7 @@ pub async fn authenticate_options(
     State(state): State<AppState>,
     Json(request): Json<AuthenticateOptionsRequest>,
 ) -> Result<Json<AuthenticationOptions>> {
-    use crate::db::models::{User, Fido2Credential};
+    use crate::db::models::{Fido2Credential, User};
 
     // Get user by username from database
     let pool = state.db.inner();
@@ -123,10 +129,14 @@ pub async fn authenticate_options(
 
     Ok(Json(AuthenticationOptions {
         challenge: challenge.challenge,
-        allow_credentials: challenge.allow_credentials.into_iter().map(|c| AllowedCredential {
-            type_: c.type_,
-            id: c.id,
-        }).collect(),
+        allow_credentials: challenge
+            .allow_credentials
+            .into_iter()
+            .map(|c| AllowedCredential {
+                type_: c.type_,
+                id: c.id,
+            })
+            .collect(),
         user_verification: "preferred".to_string(),
         timeout: challenge.timeout,
     }))
@@ -141,8 +151,9 @@ pub async fn authenticate_verify(
 
     // Convert response JSON to internal type
     let response: crate::auth::fido2::types::AuthenticationResponse =
-        serde_json::from_value(request.response.clone())
-            .map_err(|e| AuthError::BadRequest(format!("Invalid authentication response: {}", e)))?;
+        serde_json::from_value(request.response.clone()).map_err(|e| {
+            AuthError::BadRequest(format!("Invalid authentication response: {}", e))
+        })?;
 
     // Convert request to internal type
     let auth_request = crate::auth::fido2::types::AuthenticationRequest {
@@ -163,12 +174,15 @@ pub async fn authenticate_verify(
     let result = finish_authentication(&state, user_id, auth_request).await?;
 
     // Update credential usage counter
-    credential.update_usage(pool, result.new_counter as i64).await?;
+    credential
+        .update_usage(pool, result.new_counter as i64)
+        .await?;
 
     // Generate JWT tokens
-    let jwt = state.jwt.as_ref().ok_or_else(|| {
-        AuthError::Internal("JWT service not initialized".to_string())
-    })?;
+    let jwt = state
+        .jwt
+        .as_ref()
+        .ok_or_else(|| AuthError::Internal("JWT service not initialized".to_string()))?;
 
     let tokens = jwt.generate_token_pair(user_id)?;
 
