@@ -167,3 +167,27 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Contributing
 
 Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
+
+---
+
+> Snapshot from August 2026 cleanup; verify current state via `/etc/nixos/SOPS-NIX.md`.
+
+## See Also — SOPS-NIX (canonical on this host)
+
+For canonical sops-nix status, key file location (`/etc/nixos/.age/key.txt`),
+registry module structure (`/etc/nixos/modules/system/sops-secrets-registry.nix`),
+current recipients (`/etc/nixos/.sops.yaml`), and recovery workflow, see
+`/etc/nixos/SOPS-NIX.md`.
+
+Quick facts that hold on this NixOS host (zephyr):
+- Registry `services.sops-secrets-registry.enable` defaults to `false` on
+  all 5 hosts (forge, nexus, sentry, zephyr, krash3); the registry's
+  `mkIf` block is currently inert and `config.sops.secrets` evaluates to
+  `[]` until a host opts in.
+- 0/135 existing encrypted files decrypt locally today (legacy
+  recipients pre-date the single-pubkey `.sops.yaml` policy). The
+  `/etc/nixos/.sops.yaml` already names the local pubkey, so new
+  encryptions will decrypt on zephyr.
+- After any `age-keygen` / `sops updatekeys` operation, sync the user
+  key to the canonical location:
+  `sudo cp ~/.age/key.txt /etc/nixos/.age/key.txt && sudo chown root:root /etc/nixos/.age/key.txt && sudo chmod 600 /etc/nixos/.age/key.txt`.
