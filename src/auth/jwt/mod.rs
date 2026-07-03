@@ -130,6 +130,19 @@ impl JwtService {
         Uuid::parse_str(&claims.sub)
             .map_err(|_| AuthError::Internal("Invalid user ID in token".to_string()))
     }
+
+    /// Validate any JWT token (access or refresh) — returns claims without checking token kind.
+    /// Used by the token verification endpoint for external services (e.g., Quill MCP).
+    pub fn validate_token(&self, token: &str) -> Result<Claims> {
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.validate_exp = true;
+
+        let claims = decode::<Claims>(token, &self.decoding_key, &validation)
+            .map_err(|e| AuthError::Unauthorized(format!("Invalid token: {}", e)))?
+            .claims;
+
+        Ok(claims)
+    }
 }
 
 #[cfg(test)]
