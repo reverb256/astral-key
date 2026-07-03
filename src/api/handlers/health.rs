@@ -1,7 +1,9 @@
 //! Astral Key - Health check handlers
 
-use axum::Json;
+use axum::{extract::State, Json};
 use serde_json::json;
+
+use crate::state::AppState;
 
 /// Health check response
 pub async fn health() -> Json<serde_json::Value> {
@@ -12,14 +14,12 @@ pub async fn health() -> Json<serde_json::Value> {
 }
 
 /// Readiness check response
-pub async fn ready() -> Json<serde_json::Value> {
-    // TODO: Check database, redis, vaultwarden connectivity
+pub async fn ready(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let db_ok = state.db.health_check().await.is_ok();
     Json(json!({
-        "status": "ready",
+        "status": if db_ok { "ready" } else { "not_ready" },
         "checks": {
-            "database": true,
-            "redis": true,
-            "vaultwarden": true,
+            "database": db_ok,
         }
     }))
 }

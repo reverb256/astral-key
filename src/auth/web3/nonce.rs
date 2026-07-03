@@ -1,7 +1,10 @@
 //! Astral Key - Web3 nonce generation and management
+//!
+//! Uses the nonces table in SQLite (no Redis).
 
 use rand::Rng;
 
+use crate::db::models::Nonce;
 use crate::error::Result;
 use crate::state::AppState;
 
@@ -28,19 +31,31 @@ pub fn generate_siwe_message(domain: &str, address: &str, nonce: &str, chain_id:
     )
 }
 
-/// Store nonce in cache
+/// Store nonce in database
 pub async fn store_nonce(state: &AppState, nonce: &str) -> Result<()> {
-    state.cache.set_with_expiry(nonce, "1", 900).await // 15 minutes
+    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(15);
+    Nonce::create(state.db.inner(), nonce, expires_at, None).await?;
+    Ok(())
 }
 
-/// Validate nonce (check if exists and not used)
+/// Validate nonce (check if exists in DB, not used, not expired)
 pub async fn validate_nonce(state: &AppState, nonce: &str) -> Result<bool> {
-    state.cache.exists(nonce).await
+    let pool = state.db.inner();
+    let record = Nonce::get_by_nonce(pool, nonce).await?;
+    Ok(record.as_ref().map_or(false, |n| n.is_valid()))
 }
 
-/// Consume (delete) nonce
+/// Consume (mark as used) nonce
 pub async fn consume_nonce(state: &AppState, nonce: &str) -> Result<bool> {
-    state.cache.delete(nonce).await
+    let pool = state.db.inner();
+    let record = Nonce::get_by_nonce(pool, nonce).await?;
+    if let Some(n) = record {
+        if n.is_valid() {
+            n.mark_as_used(pool).await?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(test)]

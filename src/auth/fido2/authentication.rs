@@ -24,7 +24,6 @@ pub async fn start_authentication(
         .as_ref()
         .ok_or_else(|| AuthError::Internal("FIDO2 service not initialized".to_string()))?;
 
-    // Get user's credentials from database
     let pool = state.db.inner();
     let db_credentials = Fido2Credential::get_by_user(pool, user_id).await?;
 
@@ -34,34 +33,28 @@ pub async fn start_authentication(
         ));
     }
 
-    // Convert database credentials to Passkey format
-    // We store the full Passkey as JSON in the public_key field
     let mut passkeys = Vec::new();
     for db_cred in db_credentials {
-        // Deserialize the Passkey from stored JSON
         let passkey: Passkey = serde_json::from_str(&db_cred.public_key).map_err(|e| {
             AuthError::Internal(format!("Failed to deserialize stored passkey: {}", e))
         })?;
         passkeys.push(passkey);
     }
 
-    // Generate authentication challenge using webauthn-rs
     let (rcr, auth_state) = fido2
         .webauthn()
         .start_passkey_authentication(&passkeys)
         .map_err(|e| AuthError::Internal(format!("Failed to start authentication: {}", e)))?;
 
-    // Serialize authentication state for storage
     let auth_state_json = serde_json::to_string(&auth_state).map_err(|e| {
         AuthError::Internal(format!("Failed to serialize authentication state: {}", e))
     })?;
 
-    // Store state in cache (5 minute TTL)
+    // Store state in in-memory store (5 minute TTL)
     fido2
-        .store_state(user_id, "authenticate", auth_state_json)
+        .store_state(state, user_id, "authenticate", auth_state_json)
         .await?;
 
-    // Convert RequestChallengeResponse to our AuthenticationChallenge format
     let challenge = serde_json::to_string(&rcr.public_key.challenge)
         .map_err(|e| AuthError::Internal(format!("Failed to serialize challenge: {}", e)))?;
     let allow_credentials = rcr
@@ -99,22 +92,18 @@ pub async fn finish_authentication(
         .as_ref()
         .ok_or_else(|| AuthError::Internal("FIDO2 service not initialized".to_string()))?;
 
-    // Retrieve authentication state from cache
     let auth_state_json = fido2
-        .get_state(user_id, "authenticate")
+        .get_state(state, user_id, "authenticate")
         .await?
         .ok_or_else(|| {
             AuthError::BadRequest("Authentication challenge expired or not found".to_string())
         })?;
 
-    // Deserialize authentication state
     let auth_state: PasskeyAuthentication =
         serde_json::from_str(&auth_state_json).map_err(|e| {
             AuthError::Internal(format!("Failed to deserialize authentication state: {}", e))
         })?;
 
-    // Convert AuthenticationRequest to PublicKeyCredential
-    // Helper function to decode base64url
     let decode_b64 = |s: &str| -> Result<Vec<u8>> {
         URL_SAFE_NO_PAD
             .decode(s)
@@ -147,19 +136,16 @@ pub async fn finish_authentication(
         },
     };
 
-    // Verify authentication using webauthn-rs (full cryptographic verification)
     let auth_result = fido2
         .webauthn()
         .finish_passkey_authentication(&auth_credential, &auth_state)
-        .map_err(|e| {
-            // Provide detailed error message for debugging
-            AuthError::BadRequest(format!("Assertion verification failed: {}", e))
-        })?;
+        .map_err(|e| AuthError::BadRequest(format!("Assertion verification failed: {}", e)))?;
 
     // Consume the challenge (one-time use)
-    fido2.consume_state(user_id, "authenticate").await?;
+    fido2
+        .consume_state(state, user_id, "authenticate")
+        .await?;
 
-    // Extract credential ID and new counter
     let credential_id = serde_json::to_string(auth_result.cred_id())
         .map_err(|e| AuthError::Internal(format!("Failed to serialize credential ID: {}", e)))?;
     let new_counter = auth_result.counter() as u64;
@@ -168,9 +154,4 @@ pub async fn finish_authentication(
         credential_id,
         new_counter,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 }

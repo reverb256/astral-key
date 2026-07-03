@@ -1,9 +1,8 @@
 //! Astral Key - Database connection pool
 //!
-//! Manages PostgreSQL connection pool using SQLx.
+//! Manages SQLite connection pool using SQLx.
 
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Pool, Postgres};
+use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 use crate::config::DatabaseConfig;
 use crate::error::{AuthError, Result};
@@ -11,26 +10,22 @@ use crate::error::{AuthError, Result};
 /// Database connection pool
 #[derive(Clone)]
 pub struct DbPool {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl DbPool {
-    /// Create a new database connection pool
+    /// Create a new SQLite connection pool
     pub async fn new(config: &DatabaseConfig) -> Result<Self> {
-        tracing::debug!("Creating database connection pool");
+        tracing::debug!("Creating SQLite connection pool");
 
-        let pool = PgPoolOptions::new()
+        let pool = SqlitePoolOptions::new()
             .max_connections(config.max_connections)
-            .min_connections(config.min_connections)
             .acquire_timeout(std::time::Duration::from_secs(30))
-            .idle_timeout(std::time::Duration::from_secs(600))
-            .max_lifetime(std::time::Duration::from_secs(1800))
             .connect(&config.url)
             .await?;
 
         tracing::info!(
-            "Database connection pool created (min: {}, max: {})",
-            config.min_connections,
+            "SQLite connection pool created (max: {})",
             config.max_connections
         );
 
@@ -38,14 +33,13 @@ impl DbPool {
     }
 
     /// Get the underlying SQLx pool
-    pub fn inner(&self) -> &Pool<Postgres> {
+    pub fn inner(&self) -> &SqlitePool {
         &self.pool
     }
 
     /// Health check for the database connection
     pub async fn health_check(&self) -> Result<bool> {
         sqlx::query("SELECT 1").fetch_one(&self.pool).await?;
-
         Ok(true)
     }
 
@@ -60,39 +54,5 @@ impl DbPool {
 
         tracing::info!("Database migrations completed successfully");
         Ok(())
-    }
-}
-
-/// Tests
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    #[ignore] // Requires actual database
-    async fn test_pool_creation() {
-        let config = DatabaseConfig {
-            url: "postgresql://localhost/astral_key".to_string(),
-            max_connections: 5,
-            min_connections: 1,
-        };
-
-        let pool = DbPool::new(&config).await;
-        assert!(pool.is_ok());
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_health_check() {
-        let config = DatabaseConfig {
-            url: "postgresql://localhost/astral_key".to_string(),
-            max_connections: 5,
-            min_connections: 1,
-        };
-
-        let pool = DbPool::new(&config).await.unwrap();
-        let health = pool.health_check().await;
-        assert!(health.is_ok());
-        assert!(health.unwrap());
     }
 }

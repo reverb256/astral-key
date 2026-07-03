@@ -106,15 +106,9 @@
               name = "astral-key-dev";
 
               packages = with pkgs; [
-                # Rust toolchain
                 rustToolchain
                 cargo-watch
                 cargo-edit
-
-                # Database tools
-                postgresql
-                redis
-                sqlx-cli
 
                 # API testing
                 httpie
@@ -135,9 +129,6 @@
                 echo "  API:        http://localhost:8080"
                 echo "  Health:     http://localhost:8080/health"
                 echo ""
-                echo "  Current Status: Prototype (~5% complete)"
-                echo "  See STATUS.md for details"
-                echo ""
                 echo "  Commands:"
                 echo "    cargo run       - Start development server"
                 echo "    cargo test       - Run tests"
@@ -145,8 +136,6 @@
                 echo ""
 
                 # Environment setup
-                export DATABASE_URL="postgresql://astral:astral@localhost:5432/astral_key"
-                export REDIS_URL="redis://localhost:6379"
                 export RUST_LOG="debug,astral_key=trace"
 
                 # Pre-commit hooks

@@ -16,12 +16,6 @@ pub enum AuthError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
-    #[error("Cache error: {0}")]
-    Cache(String),
-
-    #[error("Redis error: {0}")]
-    Redis(String),
-
     #[error("JWT error: {0}")]
     Jwt(String),
 
@@ -30,9 +24,6 @@ pub enum AuthError {
 
     #[error("FIDO2 error: {0}")]
     Fido2(String),
-
-    #[error("Vaultwarden error: {0}")]
-    Vaultwarden(String),
 
     #[error("Config error: {0}")]
     Config(String),
@@ -48,9 +39,6 @@ pub enum AuthError {
 
     #[error("Not found: {0}")]
     NotFound(String),
-
-    #[error("Rate limited")]
-    RateLimited,
 
     #[error("Internal error: {0}")]
     Internal(String),
@@ -72,27 +60,14 @@ impl IntoResponse for AuthError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal database error".to_string(),
             ),
-            AuthError::Cache(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal cache error".to_string(),
-            ),
-            AuthError::Redis(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal cache error".to_string(),
-            ),
             AuthError::Jwt(msg) => (StatusCode::UNAUTHORIZED, msg),
             AuthError::Web3(msg) => (StatusCode::BAD_REQUEST, msg),
             AuthError::Fido2(msg) => (StatusCode::BAD_REQUEST, msg),
-            AuthError::Vaultwarden(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             AuthError::Config(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             AuthError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
             AuthError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
             AuthError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
             AuthError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-            AuthError::RateLimited => (
-                StatusCode::TOO_MANY_REQUESTS,
-                "Rate limit exceeded".to_string(),
-            ),
             AuthError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             AuthError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             AuthError::NotImplemented(msg) => (StatusCode::NOT_IMPLEMENTED, msg),
@@ -109,20 +84,8 @@ impl IntoResponse for AuthError {
     }
 }
 
-impl From<redis::RedisError> for AuthError {
-    fn from(err: redis::RedisError) -> Self {
-        AuthError::Redis(err.to_string())
-    }
-}
-
 impl From<jsonwebtoken::errors::Error> for AuthError {
     fn from(err: jsonwebtoken::errors::Error) -> Self {
         AuthError::Jwt(err.to_string())
-    }
-}
-
-impl From<reqwest::Error> for AuthError {
-    fn from(err: reqwest::Error) -> Self {
-        AuthError::Internal(format!("HTTP client error: {}", err))
     }
 }

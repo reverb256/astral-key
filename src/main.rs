@@ -1,23 +1,19 @@
-//! Astral Key - Web3 & FIDO2 Authentication Microservice
+//! Astral Key - Ultra-minimal Passkey + Web3 (SIWE) Auth Sidecar
 //!
-//! A next-generation authentication service built with Rust, NixOS, and Vaultwarden.
+//! Standalone auth sidecar with SQLite, no Redis/PostgreSQL needed.
 
 use std::net::SocketAddr;
 
-use axum::extract::State;
 use axum::{response::IntoResponse, routing::get, Router};
-use tokio::signal;
-use tracing::{info, warn};
+use tracing::info;
 
 mod api;
 mod auth;
-mod cache;
 mod config;
 mod db;
 mod error;
 mod state;
 mod utils;
-mod vaultwarden;
 
 use crate::config::Config;
 use crate::state::AppState;
@@ -70,7 +66,7 @@ async fn health_handler() -> &'static str {
 }
 
 /// Readiness check endpoint
-async fn readiness_handler(State(state): State<AppState>) -> impl IntoResponse {
+async fn readiness_handler(axum::extract::State(state): axum::extract::State<AppState>) -> impl IntoResponse {
     // Check database connectivity
     if let Err(e) = state.db.health_check().await {
         tracing::error!("Database health check failed: {}", e);
@@ -84,54 +80,11 @@ async fn readiness_handler(State(state): State<AppState>) -> impl IntoResponse {
         );
     }
 
-    // Check Redis connectivity
-    if let Err(e) = state.cache.health_check().await {
-        tracing::error!("Redis health check failed: {}", e);
-        let body = serde_json::json!({
-            "status": "not_ready",
-            "error": "redis_unavailable"
-        });
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            axum::Json(body),
-        );
-    }
-
     let body = serde_json::json!({
         "status": "ready",
         "checks": {
             "database": true,
-            "redis": true
         }
     });
     (axum::http::StatusCode::OK, axum::Json(body))
-}
-
-/// Graceful shutdown signal handler
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("Failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("Failed to install signal handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {
-            warn!("Received Ctrl+C, starting graceful shutdown");
-        }
-        _ = terminate => {
-            warn!("Received SIGTERM, starting graceful shutdown");
-        }
-    }
 }
