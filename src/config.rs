@@ -1,7 +1,6 @@
 //! Astral Key - Configuration management
 //!
-//! Handles loading and validation of application configuration from environment variables
-//! and configuration files.
+//! Handles loading of application configuration from environment variables.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -11,13 +10,9 @@ use std::collections::HashMap;
 pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
-    pub redis: RedisConfig,
-    pub vaultwarden: VaultwardenConfig,
     pub web3: Web3Config,
     pub fido2: Fido2Config,
     pub jwt: JwtConfig,
-    pub rate_limit: RateLimitConfig,
-    pub oidc: OidcConfig,
 }
 
 /// Server configuration
@@ -25,12 +20,6 @@ pub struct Config {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
-    #[serde(default = "default_workers")]
-    pub workers: usize,
-}
-
-fn default_workers() -> usize {
-    num_cpus::get()
 }
 
 /// Database configuration
@@ -39,36 +28,10 @@ pub struct DatabaseConfig {
     pub url: String,
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
-    #[serde(default = "default_min_connections")]
-    pub min_connections: u32,
 }
 
 fn default_max_connections() -> u32 {
-    10
-}
-
-fn default_min_connections() -> u32 {
-    2
-}
-
-/// Redis configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RedisConfig {
-    pub url: String,
-    #[serde(default = "default_pool_size")]
-    pub pool_size: usize,
-}
-
-fn default_pool_size() -> usize {
-    10
-}
-
-/// Vaultwarden configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VaultwardenConfig {
-    pub url: String,
-    #[serde(rename = "admin_token_file")]
-    pub admin_token_file: Option<String>,
+    5
 }
 
 /// Web3 configuration
@@ -117,8 +80,6 @@ fn default_attestation() -> String {
 /// JWT configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JwtConfig {
-    #[serde(rename = "secret_file")]
-    pub secret_file: String,
     #[serde(default = "default_access_token_ttl")]
     pub access_token_ttl: u64,
     #[serde(default = "default_refresh_token_ttl")]
@@ -133,40 +94,9 @@ fn default_refresh_token_ttl() -> u64 {
     604800 // 7 days
 }
 
-/// Rate limiting configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RateLimitConfig {
-    #[serde(default = "default_requests_per_minute")]
-    pub requests_per_minute: u32,
-    #[serde(default = "default_burst_size")]
-    pub burst_size: u32,
-}
-
-/// OIDC configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OidcConfig {
-    #[serde(default = "default_issuer_url")]
-    pub issuer_url: String,
-}
-
-fn default_issuer_url() -> String {
-    "https://auth.lan".to_string()
-}
-
-fn default_requests_per_minute() -> u32 {
-    60
-}
-
-fn default_burst_size() -> u32 {
-    10
-}
-
 impl Config {
     /// Load configuration from environment variables
     pub fn from_env() -> anyhow::Result<Self> {
-        // TODO: Implement proper configuration loading from env vars
-        // This is a placeholder for initial structure
-
         let config = Config {
             server: ServerConfig {
                 host: std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
@@ -174,35 +104,14 @@ impl Config {
                     .ok()
                     .and_then(|p| p.parse().ok())
                     .unwrap_or(8080),
-                workers: std::env::var("SERVER_WORKERS")
-                    .ok()
-                    .and_then(|w| w.parse().ok())
-                    .unwrap_or_else(num_cpus::get),
             },
             database: DatabaseConfig {
                 url: std::env::var("DATABASE_URL")
-                    .unwrap_or_else(|_| "postgresql://localhost/astral_key".to_string()),
+                    .unwrap_or_else(|_| "sqlite:astral_key.db?mode=rwc".to_string()),
                 max_connections: std::env::var("DATABASE_MAX_CONNECTIONS")
                     .ok()
                     .and_then(|c| c.parse().ok())
-                    .unwrap_or(10),
-                min_connections: std::env::var("DATABASE_MIN_CONNECTIONS")
-                    .ok()
-                    .and_then(|c| c.parse().ok())
-                    .unwrap_or(2),
-            },
-            redis: RedisConfig {
-                url: std::env::var("REDIS_URL")
-                    .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
-                pool_size: std::env::var("REDIS_POOL_SIZE")
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(10),
-            },
-            vaultwarden: VaultwardenConfig {
-                url: std::env::var("VAULTWARDEN_URL")
-                    .unwrap_or_else(|_| "http://localhost:8000".to_string()),
-                admin_token_file: std::env::var("VAULTWARDEN_ADMIN_TOKEN_FILE").ok(),
+                    .unwrap_or(5),
             },
             web3: Web3Config {
                 chains: default_chains(),
@@ -220,18 +129,8 @@ impl Config {
                     .unwrap_or_else(|_| "indirect".to_string()),
             },
             jwt: JwtConfig {
-                secret_file: std::env::var("JWT_SECRET_FILE")
-                    .unwrap_or_else(|_| "/var/lib/astral-key/jwt_secret".to_string()),
                 access_token_ttl: default_access_token_ttl(),
                 refresh_token_ttl: default_refresh_token_ttl(),
-            },
-            rate_limit: RateLimitConfig {
-                requests_per_minute: default_requests_per_minute(),
-                burst_size: default_burst_size(),
-            },
-            oidc: OidcConfig {
-                issuer_url: std::env::var("OIDC_ISSUER_URL")
-                    .unwrap_or_else(|_| default_issuer_url()),
             },
         };
 

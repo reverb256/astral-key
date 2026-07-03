@@ -1,16 +1,14 @@
-//! Astral Key - Library exports
+//! Astral Key - Ultra-minimal Passkey + Web3 (SIWE) auth sidecar
 //!
-//! This module provides the public API for using Astral Key as a library.
+//! Standalone auth sidecar with SQLite, no Redis/PostgreSQL needed.
 
 pub mod api;
 pub mod auth;
-pub mod cache;
 pub mod config;
 pub mod db;
 pub mod error;
 pub mod state;
 pub mod utils;
-pub mod vaultwarden;
 
 pub use config::Config;
 pub use error::{AuthError, Result};

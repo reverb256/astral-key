@@ -3,10 +3,10 @@ name = "astral-key"
 version = "0.1.0"
 edition = "2021"
 authors = ["Astral Key Contributors"]
-description = "Microservice for Web3, FIDO, and Passkey authentication with Vaultwarden backend"
+description = "Ultra-minimal Passkey + Web3 (SIWE) auth sidecar"
 license = "MIT"
 repository = "https://github.com/reverb256/astral-key"
-keywords = ["web3", "fido2", "passkey", "authentication", "vaultwarden"]
+keywords = ["web3", "fido2", "passkey", "authentication"]
 categories = ["authentication", "web-programming"]
 rust-version = "1.75"
 
@@ -16,25 +16,22 @@ members = ["."]
 [dependencies]
 # Core async runtime
 tokio = { version = "1.35", features = ["full", "tracing"] }
-tokio-util = { version = "0.7", features = ["codec"] }
 
 # Web framework
-axum = { version = "0.7", features = ["ws", "macros"] }
+axum = { version = "0.7", features = ["macros"] }
 tower = { version = "0.4", features = ["full"] }
-tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
-hyper = { version = "1.0", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
 
-# Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
-redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+# Database (SQLite)
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "migrate"] }
 
 # Web3
-ethers = { version = "2.0", features = ["rustls", "ws"] }
+ethers = { version = "2.0", features = ["rustls"] }
 siwe = "0.6"
 
 # FIDO2/WebAuthn
@@ -53,26 +50,13 @@ sha2 = "0.10"
 hmac = "0.12"
 rand = "0.8"
 
-# HTTP client
-reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
-
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
 
-# Logging and tracing
+# Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.22"
-opentelemetry = "0.21"
-opentelemetry-otlp = "0.14"
-
-# Metrics
-metrics = "0.22"
-metrics-exporter-prometheus = "0.13"
-
-# Validation
-validator = { version = "0.16", features = ["derive"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -83,39 +67,17 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 # Configuration
 config = "0.14"
 
-# Rate limiting
-governor = "0.2"
-
-# Password hashing (for admin accounts)
-argon2 = "0.5"
-
-# RSA asymmetric key support for OIDC JWKS
-rsa = { version = "0.9" }
-
 # Utilities
-once_cell = "1.19"
 async-trait = "0.1"
 futures = "0.3"
 bytes = "1.5"
-num_cpus = "1.16"
-openidconnect = { version = "3.5", features = ["reqwest"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
-reqwest = { version = "0.11", features = ["json"] }
-wiremock = "0.6"
-criterion = { version = "0.5", features = ["async_tokio"] }
-fake = { version = "2.9", features = ["derive"] }
-rand = "0.8"
 
 [features]
 default = []
 production = []
-
-# Benches are not yet implemented
-# [[bench]]
-# name = "auth_benchmark"
-# harness = false
 
 [profile.release]
 opt-level = 3
