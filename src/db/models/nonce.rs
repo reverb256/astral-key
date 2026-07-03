@@ -64,23 +64,17 @@ impl Nonce {
             Some(r) => Ok(Some(Nonce {
                 id: Uuid::parse_str(r.get::<&str, _>("id")).unwrap(),
                 nonce: r.get("nonce"),
-                expires_at: chrono::DateTime::parse_from_rfc3339(
-                    r.get::<&str, _>("expires_at"),
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                created_at: chrono::DateTime::parse_from_rfc3339(
-                    r.get::<&str, _>("created_at"),
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                used_at: r
-                    .get::<Option<&str>, _>("used_at")
-                    .map(|s| {
-                        chrono::DateTime::parse_from_rfc3339(s)
-                            .unwrap()
-                            .with_timezone(&Utc)
-                    }),
+                expires_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("expires_at"))
+                    .unwrap()
+                    .with_timezone(&Utc),
+                created_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("created_at"))
+                    .unwrap()
+                    .with_timezone(&Utc),
+                used_at: r.get::<Option<&str>, _>("used_at").map(|s| {
+                    chrono::DateTime::parse_from_rfc3339(s)
+                        .unwrap()
+                        .with_timezone(&Utc)
+                }),
                 user_id: r
                     .get::<Option<&str>, _>("user_id")
                     .map(|s| Uuid::parse_str(s).unwrap()),

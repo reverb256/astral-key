@@ -58,42 +58,35 @@ impl Web3Wallet {
         address: &str,
         chain_id: i32,
     ) -> Result<Option<Self>> {
-        let row = sqlx::query(
-            "SELECT * FROM web3_wallets WHERE address = ?1 AND chain_id = ?2",
-        )
-        .bind(address)
-        .bind(chain_id)
-        .fetch_optional(pool)
-        .await?;
+        let row = sqlx::query("SELECT * FROM web3_wallets WHERE address = ?1 AND chain_id = ?2")
+            .bind(address)
+            .bind(chain_id)
+            .fetch_optional(pool)
+            .await?;
 
         Ok(row.map(|r| Web3Wallet {
             id: Uuid::parse_str(r.get::<&str, _>("id")).unwrap(),
             user_id: Uuid::parse_str(r.get::<&str, _>("user_id")).unwrap(),
             address: r.get("address"),
             chain_id: r.get("chain_id"),
-            created_at: chrono::DateTime::parse_from_rfc3339(
-                r.get::<&str, _>("created_at"),
-            )
-            .unwrap()
-            .with_timezone(&Utc),
-            last_used_at: r
-                .get::<Option<&str>, _>("last_used_at")
-                .map(|s| {
-                    chrono::DateTime::parse_from_rfc3339(s)
-                        .unwrap()
-                        .with_timezone(&Utc)
-                }),
+            created_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("created_at"))
+                .unwrap()
+                .with_timezone(&Utc),
+            last_used_at: r.get::<Option<&str>, _>("last_used_at").map(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .unwrap()
+                    .with_timezone(&Utc)
+            }),
         }))
     }
 
     /// Get all wallets for a user
     pub async fn get_by_user(pool: &SqlitePool, user_id: Uuid) -> Result<Vec<Self>> {
-        let rows = sqlx::query(
-            "SELECT * FROM web3_wallets WHERE user_id = ?1 ORDER BY created_at DESC",
-        )
-        .bind(user_id.to_string())
-        .fetch_all(pool)
-        .await?;
+        let rows =
+            sqlx::query("SELECT * FROM web3_wallets WHERE user_id = ?1 ORDER BY created_at DESC")
+                .bind(user_id.to_string())
+                .fetch_all(pool)
+                .await?;
 
         Ok(rows
             .into_iter()
@@ -102,18 +95,14 @@ impl Web3Wallet {
                 user_id: Uuid::parse_str(r.get::<&str, _>("user_id")).unwrap(),
                 address: r.get("address"),
                 chain_id: r.get("chain_id"),
-                created_at: chrono::DateTime::parse_from_rfc3339(
-                    r.get::<&str, _>("created_at"),
-                )
-                .unwrap()
-                .with_timezone(&Utc),
-                last_used_at: r
-                    .get::<Option<&str>, _>("last_used_at")
-                    .map(|s| {
-                        chrono::DateTime::parse_from_rfc3339(s)
-                            .unwrap()
-                            .with_timezone(&Utc)
-                    }),
+                created_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("created_at"))
+                    .unwrap()
+                    .with_timezone(&Utc),
+                last_used_at: r.get::<Option<&str>, _>("last_used_at").map(|s| {
+                    chrono::DateTime::parse_from_rfc3339(s)
+                        .unwrap()
+                        .with_timezone(&Utc)
+                }),
             })
             .collect())
     }

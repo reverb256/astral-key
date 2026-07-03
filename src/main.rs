@@ -66,7 +66,9 @@ async fn health_handler() -> &'static str {
 }
 
 /// Readiness check endpoint
-async fn readiness_handler(axum::extract::State(state): axum::extract::State<AppState>) -> impl IntoResponse {
+async fn readiness_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> impl IntoResponse {
     // Check database connectivity
     if let Err(e) = state.db.health_check().await {
         tracing::error!("Database health check failed: {}", e);
