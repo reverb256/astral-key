@@ -38,6 +38,8 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
 
     // Create public routes (no authentication)
     let public_routes = Router::new()
+        // Token verification (public — validates Bearer tokens for external services)
+        .route("/auth/verify", post(handlers::auth::verify_token))
         // Web3 authentication (public - for login)
         .route("/auth/web3/nonce", post(handlers::web3::nonce))
         .route("/auth/web3/verify", post(handlers::web3::verify))
