@@ -142,9 +142,7 @@ pub async fn finish_authentication(
         .map_err(|e| AuthError::BadRequest(format!("Assertion verification failed: {}", e)))?;
 
     // Consume the challenge (one-time use)
-    fido2
-        .consume_state(state, user_id, "authenticate")
-        .await?;
+    fido2.consume_state(state, user_id, "authenticate").await?;
 
     let credential_id = serde_json::to_string(auth_result.cred_id())
         .map_err(|e| AuthError::Internal(format!("Failed to serialize credential ID: {}", e)))?;

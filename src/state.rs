@@ -25,7 +25,10 @@ impl Fido2StateStore {
         let mut store = self.store.lock().await;
         store.insert(
             key.to_string(),
-            (value, std::time::Instant::now() + Duration::from_secs(ttl_secs)),
+            (
+                value,
+                std::time::Instant::now() + Duration::from_secs(ttl_secs),
+            ),
         );
     }
 
@@ -33,9 +36,7 @@ impl Fido2StateStore {
     pub async fn get(&self, key: &str) -> Option<String> {
         let mut store = self.store.lock().await;
         match store.get(key) {
-            Some((value, expiry)) if *expiry > std::time::Instant::now() => {
-                Some(value.clone())
-            }
+            Some((value, expiry)) if *expiry > std::time::Instant::now() => Some(value.clone()),
             _ => {
                 store.remove(key);
                 None

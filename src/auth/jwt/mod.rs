@@ -138,7 +138,12 @@ mod tests {
 
     fn create_test_service() -> JwtService {
         let secret = b"test_secret_key_32_bytes_long_!!!";
-        JwtService::new(secret, Duration::from_secs(900), Duration::from_secs(604800)).unwrap()
+        JwtService::new(
+            secret,
+            Duration::from_secs(900),
+            Duration::from_secs(604800),
+        )
+        .unwrap()
     }
 
     #[test]

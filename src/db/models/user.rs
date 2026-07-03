@@ -22,14 +22,12 @@ impl User {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
-        sqlx::query(
-            "INSERT INTO users (id, created_at, updated_at) VALUES (?1, ?2, ?3)",
-        )
-        .bind(&id)
-        .bind(&now)
-        .bind(&now)
-        .execute(pool)
-        .await?;
+        sqlx::query("INSERT INTO users (id, created_at, updated_at) VALUES (?1, ?2, ?3)")
+            .bind(&id)
+            .bind(&now)
+            .bind(&now)
+            .execute(pool)
+            .await?;
 
         Ok(Self {
             id: Uuid::parse_str(&id).unwrap(),

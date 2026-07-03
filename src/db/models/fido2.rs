@@ -35,13 +35,11 @@ fn row_to_credential(r: sqlx::sqlite::SqliteRow) -> Fido2Credential {
         created_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("created_at"))
             .unwrap()
             .with_timezone(&Utc),
-        last_used_at: r
-            .get::<Option<&str>, _>("last_used_at")
-            .map(|s| {
-                chrono::DateTime::parse_from_rfc3339(s)
-                    .unwrap()
-                    .with_timezone(&Utc)
-            }),
+        last_used_at: r.get::<Option<&str>, _>("last_used_at").map(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .unwrap()
+                .with_timezone(&Utc)
+        }),
         name: r.get("name"),
     }
 }
@@ -88,12 +86,10 @@ impl Fido2Credential {
         pool: &SqlitePool,
         credential_id: &str,
     ) -> Result<Option<Self>> {
-        let row = sqlx::query(
-            "SELECT * FROM fido2_credentials WHERE credential_id = ?1",
-        )
-        .bind(credential_id)
-        .fetch_optional(pool)
-        .await?;
+        let row = sqlx::query("SELECT * FROM fido2_credentials WHERE credential_id = ?1")
+            .bind(credential_id)
+            .fetch_optional(pool)
+            .await?;
 
         Ok(row.map(row_to_credential))
     }
