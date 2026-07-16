@@ -1,0 +1,152 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: casdoor
+  namespace: auth
+  labels:
+    app: casdoor
+    app.kubernetes.io/component: api
+    app.kubernetes.io/managed-by: easykubenix
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: casdoor
+      app.kubernetes.io/component: api
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app: casdoor
+        app.kubernetes.io/component: api
+        app.kubernetes.io/managed-by: easykubenix
+    spec:
+      serviceAccountName: casdoor
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        kubernetes.io/hostname: zephyr
+      containers:
+      - name: casdoor
+        image: docker.io/casbin/casdoor:3.49.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: RUNNING_IN_DOCKER
+          value: "true"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - mountPath: /conf/app.conf
+          name: config
+          subPath: app.conf
+          readOnly: true
+        - mountPath: /init_data.json
+          name: init-data
+          subPath: init_data.json
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 10
+          successThreshold: 1
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop: ["ALL"]
+      initContainers:
+      - name: setup-config
+        image: alpine:3.19
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Generating config..."
+          PASSWORD=$(openssl rand -hex 32)
+          echo "Creating secret via kubectl..."
+          kubectl create secret generic casdoor-postgres-secret \
+            --from-literal=POSTGRES_PASSWORD=$PASSWORD \
+            --namespace=auth \
+            --dry-run=client -o yaml | kubectl apply -f -
+          sed "s|\${POSTGRES_PASSWORD}|$PASSWORD|g" /template/app.conf.template > /config/app.conf
+          echo "Config generated successfully"
+        volumeMounts:
+        - mountPath: /template
+          name: template
+          readOnly: true
+        - mountPath: /config
+          name: config
+        - mountPath: /postgres-secret
+          name: postgres-secret
+          readOnly: true
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: casdoor-postgres-secret
+              key: POSTGRES_PASSWORD
+      volumes:
+      - name: template
+        configMap:
+          name: casdoor-config
+          items:
+          - key: app.conf.template
+            path: app.conf.template
+      - name: config
+        emptyDir: {}
+      - name: postgres-secret
+        secret:
+          secretName: casdoor-postgres-secret
+          items:
+          - key: POSTGRES_PASSWORD
+            path: POSTGRES_PASSWORD
+      - name: init-data
+        configMap:
+          name: casdoor-init-data
+          items:
+          - key: init_data.json
+            path: init_data.json

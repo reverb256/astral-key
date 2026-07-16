@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mosaic — Profile</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/__MOSAIC_IDENTITY__.css">
+  <style>
+    .nav-bar { display: flex; gap: 8px; align-items: center; }
+    .nav-bar a { color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; padding: 4px 12px; border-radius: var(--radius-sm); }
+    .nav-bar a:hover { color: var(--text-primary); background: var(--bg-hover); }
+    .nav-bar a.active { color: var(--accent); background: var(--bg-hover); }
+    .editor-pane { display: grid; grid-template-columns: 1fr 1fr; gap: var(--xl); height: calc(100vh - 80px); }
+    .editor-left, .editor-right { display: flex; flex-direction: column; gap: var(--md); }
+    .editor-toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .editor-toolbar .btn { font-size: 0.85rem; padding: 6px 14px; }
+    .code-area { flex: 1; min-height: 300px; }
+    .code-area textarea { width: 100%; height: 100%; min-height: 400px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--md); font-family: var(--font-mono); font-size: 0.85rem; resize: vertical; }
+    .preview-frame { flex: 1; width: 100%; min-height: 400px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
+    .profile-view { max-width: 800px; margin: 0 auto; }
+    .profile-header { display: flex; align-items: center; gap: var(--lg); padding: var(--xl); }
+    .profile-avatar { width: 96px; height: 96px; border-radius: 50%; background: var(--bg-hover); display: flex; align-items: center; justify-content: center; font-size: 2.5rem; color: var(--text-muted); }
+    .profile-info h2 { margin: 0; }
+    .profile-info p { color: var(--text-secondary); margin: 4px 0 0; }
+    .profile-bio { padding: 0 var(--xl) var(--xl); color: var(--text-secondary); }
+    .profile-links { padding: 0 var(--xl) var(--xl); display: flex; gap: var(--md); flex-wrap: wrap; }
+    .profile-links a { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
+    .profile-links a:hover { text-decoration: underline; }
+    .profile-widgets { padding: 0 var(--xl) var(--xl); display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--md); }
+    .widget-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--md); }
+    .widget-card h4 { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: var(--sm); }
+    #no-identity-msg { text-align: center; padding: var(--xxl); color: var(--text-muted); }
+    @media (max-width: 768px) { .editor-pane { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">⍟ Mosaic</div>
+    <nav class="nav-bar">
+      <a href="/identity.html">Identity</a>
+      <a href="/profile.html" class="active">Profile</a>
+    </nav>
+    <div class="lang-switcher" style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+      <select id="lang-select" class="settings-select" style="font-size:0.8rem;padding:2px 6px;">
+        <option value="en">🇬🇧 English</option>
+        <option value="fr">🇫🇷 Français</option>
+      </select>
+    </div>
+  </header>
+
+  <main id="app">
+    <!-- No identity fallback -->
+    <section id="no-identity-msg" class="view active">
+      <p>No identity found. Please create one on the <a href="/identity.html">Identity page</a> first.</p>
+    </section>
+
+    <!-- Profile Viewer -->
+    <section id="profile-view" class="view profile-view">
+      <div class="profile-header">
+        <div class="profile-avatar" id="profile-avatar">⍟</div>
+        <div class="profile-info">
+          <h2 id="profile-display-name">Unnamed</h2>
+          <p id="profile-pubkey-display"></p>
+        </div>
+      </div>
+      <div class="profile-bio" id="profile-bio"></div>
+      <div class="profile-links" id="profile-links"></div>
+      <div class="profile-widgets" id="profile-widgets"></div>
+    </section>
+
+    <!-- Profile Editor -->
+    <section id="profile-editor" class="view">
+      <div class="editor-toolbar">
+        <button id="btn-save-profile" class="btn btn-primary">💾 Save Profile</button>
+        <button id="btn-preview-toggle" class="btn btn-secondary">👁 Preview</button>
+        <span id="profile-status" style="color:var(--text-muted);font-size:0.85rem;margin-left:auto;"></span>
+      </div>
+      <div class="editor-pane">
+        <div class="editor-left">
+          <h3>HTML</h3>
+          <div class="code-area">
+            <textarea id="profile-html-editor" placeholder="<h1>Welcome to my profile!</h1><p>Hello world.</p>"></textarea>
+          </div>
+          <h3>CSS</h3>
+          <div class="code-area">
+            <textarea id="profile-css-editor" placeholder="body { background: #1a1a2e; color: #eee; }" style="min-height:150px;"></textarea>
+          </div>
+        </div>
+        <div class="editor-right">
+          <h3>Preview</h3>
+          <iframe id="profile-preview" class="preview-frame" sandbox="allow-same-origin" srcdoc="<html><body><p style='color:#666;text-align:center;padding:40px;'>Profile preview will appear here</p></body></html>"></iframe>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/modules/app-identity.js"></script>
+  <script src="/js/modules/app-profile.js"></script>
+  <script>
+    (async function() {
+      const noIdMsg = document.getElementById('no-identity-msg');
+      const profileView = document.getElementById('profile-view');
+      const editor = document.getElementById('profile-editor');
+
+      // Check if identity exists
+      try {
+        const res = await fetch('/mosaic/identity/current');
+        const data = await res.json();
+        if (!data.identity) {
+          noIdMsg.classList.add('active');
+          return;
+        }
+        noIdMsg.classList.remove('active');
+        profileView.classList.add('active');
+        document.getElementById('profile-pubkey-display').textContent = data.identity.pubkey;
+
+        // Load profile manifest
+        const profileRes = await fetch('/mosaic/profile/' + encodeURIComponent(data.identity.pubkey));
+        if (profileRes.ok) {
+          const manifest = await profileRes.json();
+          if (manifest.html) document.getElementById('profile-html-editor').value = manifest.html;
+          if (manifest.css) document.getElementById('profile-css-editor').value = manifest.css;
+          if (manifest.display_name) document.getElementById('profile-display-name').textContent = manifest.display_name;
+          if (manifest.bio) document.getElementById('profile-bio').textContent = manifest.bio;
+        }
+      } catch(e) {
+        noIdMsg.textContent = 'Error loading identity: ' + e.message;
+        noIdMsg.classList.add('active');
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: casdoor-selfsigned
+  namespace: auth
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: casdoor-tls
+  namespace: auth
+spec:
+  secretName: casdoor-tls-secret
+  duration: 2160h
+  renewBefore: 360h
+  issuerRef:
+    name: casdoor-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+  dnsNames:
+  - auth.lan
+  - casdoor.auth.lan
+  - casdoor
+  - casdoor.auth
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+EOF && kubectl apply -f 05b-tls-selfsigned.yaml 2>&1

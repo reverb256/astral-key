@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: casdoor
+  namespace: ai-inference
+  labels:
+    app: casdoor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: casdoor
+  template:
+    metadata:
+      labels:
+        app: casdoor
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: nexus
+      containers:
+      - name: casdoor
+        image: ghcr.io/casdoor/casdoor:v1.342.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: RUN_MODE
+          value: prod
+        - name: DS_DSN
+          valueFrom:
+            secretKeyRef:
+              name: casdoor-database
+              key: dsn
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: casdoor
+  namespace: ai-inference
+  labels:
+    app: casdoor
+spec:
+  type: NodePort
+  selector:
+    app: casdoor
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 32104
+    protocol: TCP

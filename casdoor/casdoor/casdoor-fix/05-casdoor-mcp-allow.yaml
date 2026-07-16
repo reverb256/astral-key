@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: casdoor-mcp-allow
+  namespace: auth
+spec:
+  podSelector:
+    matchLabels:
+      app: casdoor
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: mcp
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    - ipBlock:
+        cidr: 10.1.1.0/24
+    - ipBlock:
+        cidr: 10.244.0.0/16
+    ports:
+    - port: 8000
+      protocol: TCP

@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: auth
+  labels:
+    app: oauth2-proxy
+    app.kubernetes.io/managed-by: easykubenix
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: oauth2-proxy
+        app.kubernetes.io/managed-by: easykubenix
+    spec:
+      serviceAccountName: oauth2-proxy
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        kubernetes.io/hostname: zephyr
+      containers:
+      - name: oauth2-proxy
+        image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.2
+        imagePullPolicy: IfNotPresent
+        args:
+        - --provider=oidc
+        - --oidc-issuer-url=http://casdoor.auth.svc.cluster.local:8000
+        - --client-id=5bf72a094f75c6f5729e
+        - --client-secret-file=/etc/oauth2/secrets/client-secret
+        - --cookie-secret-file=/etc/oauth2/secrets/cookie-secret
+        - --http-address=0.0.0.0:4180
+        - --redirect-url=http://casdoor.auth.svc.cluster.local:8000/oauth2/callback
+        - --cookie-secure=false
+        - --cookie-samesite=lax
+        - --cookie-httponly=true
+        - --email-domain=*
+        - --scope=openid profile email
+        - --ssl-insecure-skip-verify=true
+        - --set-xauthrequest=true
+        - --set-authorization-header=true
+        - --skip-provider-button=false
+        - --pass-access-token=true
+        - --pass-user-headers=true
+        - --skip-auth-route=^/health$,^/healthz$,^/api/health$,^/ready$,^/metrics$,^/favicon$,^/assets/,^/public/,^/static/
+        - --whitelist-domain=.lan
+        - --insecure-oidc-allow-unverified-email=true
+        - --insecure-oidc-skip-issuer-verification=true
+        ports:
+        - containerPort: 4180
+          name: http
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 4180
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 4180
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 1000
+        volumeMounts:
+        - mountPath: /etc/oauth2/secrets
+          name: secrets
+          readOnly: true
+      volumes:
+      - name: secrets
+        secret:
+          defaultMode: 420
+          secretName: oauth2-proxy-secrets

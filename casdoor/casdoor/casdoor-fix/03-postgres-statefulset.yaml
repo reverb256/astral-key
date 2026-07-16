@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: casdoor-postgres
+  namespace: auth
+  labels:
+    app: casdoor-postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: easykubenix
+spec:
+  replicas: 1
+  serviceName: casdoor-postgres
+  selector:
+    matchLabels:
+      app: casdoor-postgres
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app: casdoor-postgres
+        app.kubernetes.io/component: database
+        app.kubernetes.io/managed-by: easykubenix
+    spec:
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        kubernetes.io/hostname: zephyr
+      containers:
+      - name: postgres
+        image: postgres:18.3-alpine
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: casdoor-postgres-config
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: casdoor-postgres-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: casdoor-postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - containerPort: 5432
+          name: postgresql
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 256Mi
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - casdoor
+            - -d
+            - casdoor
+          failureThreshold: 6
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: data
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
+      storageClassName: local-path
+      volumeMode: Filesystem

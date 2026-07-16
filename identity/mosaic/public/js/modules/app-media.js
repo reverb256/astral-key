@@ -1,0 +1,3033 @@
+﻿export default {
+
+// ── Image Queue (paste/drop → preview → send on Enter) ──
+
+_queueImage(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const _maxMb = parseInt(this.serverSettings?.max_upload_mb) || 25;
+  if (file.size > _maxMb * 1024 * 1024) {
+    return this._showToast(`Image too large (max ${_maxMb} MB)`, 'error');
+  }
+  if (!this._imageQueue) this._imageQueue = [];
+  if (this._imageQueue.length >= 5) {
+    return this._showToast('Max 5 images at once', 'error');
+  }
+  this._imageQueue.push(file);
+  this._renderImageQueue();
+  document.getElementById('message-input').focus();
+},
+
+_renderImageQueue() {
+  const bar = document.getElementById('image-queue-bar');
+  if (!bar) return;
+  const hasImages = this._imageQueue && this._imageQueue.length > 0;
+  const hasFiles  = this._fileQueue  && this._fileQueue.length  > 0;
+  if (!hasImages && !hasFiles) {
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+    return;
+  }
+  bar.style.display = 'flex';
+  bar.innerHTML = '';
+  if (hasImages) {
+    this._imageQueue.forEach((file, idx) => {
+      const thumb = document.createElement('div');
+      thumb.className = 'image-queue-thumb' + (file._spoiler ? ' is-spoiler' : '');
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      img.alt = file.name;
+      img.onload = () => URL.revokeObjectURL(img.src);
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'image-queue-remove';
+      removeBtn.title = 'Remove';
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', () => {
+        this._imageQueue.splice(idx, 1);
+        this._renderImageQueue();
+      });
+      thumb.appendChild(img);
+      thumb.appendChild(this._makeSpoilerToggle(file));
+      thumb.appendChild(removeBtn);
+      bar.appendChild(thumb);
+    });
+  }
+  if (hasFiles) {
+    this._fileQueue.forEach((file, idx) => {
+      const chip = document.createElement('div');
+      chip.className = 'file-queue-chip';
+      chip.title = file.name + ' — ' + this._formatFileSize(file.size);
+      const icon = document.createElement('span');
+      icon.className = 'file-queue-chip-icon';
+      icon.textContent = '📎';
+      const name = document.createElement('span');
+      name.className = 'file-queue-chip-name';
+      name.textContent = file.name;
+      const size = document.createElement('span');
+      size.className = 'file-queue-chip-size';
+      size.textContent = this._formatFileSize(file.size);
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'image-queue-remove';
+      removeBtn.title = 'Remove';
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', () => {
+        this._fileQueue.splice(idx, 1);
+        this._renderImageQueue();
+      });
+      chip.appendChild(icon);
+      chip.appendChild(name);
+      chip.appendChild(size);
+      chip.appendChild(removeBtn);
+      bar.appendChild(chip);
+    });
+  }
+  // Add a "clear all" button if there's more than one queued attachment in total
+  const totalQueued = (hasImages ? this._imageQueue.length : 0) + (hasFiles ? this._fileQueue.length : 0);
+  if (totalQueued > 1) {
+    const clearAll = document.createElement('button');
+    clearAll.className = 'image-queue-clear-all';
+    clearAll.textContent = 'Clear All';
+    clearAll.addEventListener('click', () => {
+      this._clearImageQueue();
+      this._clearFileQueue();
+    });
+    bar.appendChild(clearAll);
+  }
+},
+
+_clearImageQueue() {
+  this._imageQueue = [];
+  this._renderImageQueue();
+},
+
+// Build the little eye toggle that lets the sender mark a queued image as a
+// spoiler. The choice rides along on the File object (`_spoiler`) so the flush
+// loop can read it without threading extra state through the queue arrays.
+_makeSpoilerToggle(file, isPip = false) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'image-queue-spoiler';
+  const sync = () => {
+    const on = !!file._spoiler;
+    // Open eye when the image will send normally; closed (slashed) eye once
+    // it's marked as a spoiler.
+    btn.innerHTML = this._eyeIcon(on, 12);
+    btn.title = on
+      ? ((typeof t === 'function' && t('app.messages.spoiler_on')) || 'Spoiler on — click to send normally')
+      : ((typeof t === 'function' && t('app.messages.mark_spoiler')) || 'Mark as spoiler');
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  };
+  sync();
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    file._spoiler = !file._spoiler;
+    const thumb = btn.closest('.image-queue-thumb');
+    if (thumb) thumb.classList.toggle('is-spoiler', !!file._spoiler);
+    sync();
+  });
+  return btn;
+},
+
+async _flushImageQueue(bundled = false, personaPrefix = '') {
+  if (!this._imageQueue || this._imageQueue.length === 0) return;
+  const files = [...this._imageQueue];
+  this._clearImageQueue();
+  for (const file of files) {
+    await this._uploadImage(file, undefined, bundled, personaPrefix);
+  }
+},
+
+// ── General file queue (non-image attachments) — (#5417) ──
+// Mirrors _imageQueue so non-image attachments get a remove-able preview
+// chip in the same bar instead of uploading instantly on selection.
+_queueGeneralFile(file) {
+  if (!file) return;
+  const code = this.currentChannel;
+  if (!code) return this._showToast(t('media.select_channel_first'), 'error');
+  const _ch = this.channels.find(c => c.code === code);
+  if (_ch && _ch.media_enabled === 0) {
+    return this._showToast(t('media.uploads_disabled'), 'error');
+  }
+  const maxMb = parseInt(this.serverSettings?.max_upload_mb) || 25;
+  if (file.size > maxMb * 1024 * 1024) {
+    return this._showToast(t('media.file_too_large', { maxMb }), 'error');
+  }
+  if (!this._fileQueue) this._fileQueue = [];
+  if (this._fileQueue.length >= 5) {
+    return this._showToast('Max 5 files at once', 'error');
+  }
+  this._fileQueue.push(file);
+  this._renderImageQueue();
+  document.getElementById('message-input')?.focus();
+},
+
+_clearFileQueue() {
+  this._fileQueue = [];
+  this._renderImageQueue();
+},
+
+async _flushFileQueue() {
+  if (!this._fileQueue || this._fileQueue.length === 0) return;
+  const files = [...this._fileQueue];
+  this._clearFileQueue();
+  for (const file of files) {
+    this._uploadGeneralFile(file);
+  }
+},
+
+// ── PiP DM Image Queue (#5324) ──────────────────────────
+
+_queueImageForPiP(file, targetCode) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const _maxMb = parseInt(this.serverSettings?.max_upload_mb) || 25;
+  if (file.size > _maxMb * 1024 * 1024) {
+    return this._showToast(`Image too large (max ${_maxMb} MB)`, 'error');
+  }
+  if (!this._pipImageQueue) this._pipImageQueue = [];
+  if (!this._pipImageQueueTarget) this._pipImageQueueTarget = targetCode;
+  if (this._pipImageQueue.length >= 5) {
+    return this._showToast('Max 5 images at once', 'error');
+  }
+  this._pipImageQueue.push(file);
+  this._pipImageQueueTarget = targetCode;
+  this._renderPiPImageQueue();
+  document.getElementById('dm-pip-input')?.focus();
+},
+
+_renderPiPImageQueue() {
+  const bar = document.getElementById('dm-pip-image-queue-bar');
+  if (!bar) return;
+  if (!this._pipImageQueue || this._pipImageQueue.length === 0) {
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+    return;
+  }
+  bar.style.display = 'flex';
+  bar.innerHTML = '';
+  this._pipImageQueue.forEach((file, idx) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'image-queue-thumb' + (file._spoiler ? ' is-spoiler' : '');
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.alt = file.name;
+    img.onload = () => URL.revokeObjectURL(img.src);
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'image-queue-remove';
+    removeBtn.title = 'Remove';
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', () => {
+      this._pipImageQueue.splice(idx, 1);
+      this._renderPiPImageQueue();
+    });
+    thumb.appendChild(img);
+    thumb.appendChild(this._makeSpoilerToggle(file, true));
+    thumb.appendChild(removeBtn);
+    bar.appendChild(thumb);
+  });
+  if (this._pipImageQueue.length > 1) {
+    const clearAll = document.createElement('button');
+    clearAll.className = 'image-queue-clear-all';
+    clearAll.textContent = 'Clear All';
+    clearAll.addEventListener('click', () => {
+      this._pipImageQueue = [];
+      this._renderPiPImageQueue();
+    });
+    bar.appendChild(clearAll);
+  }
+},
+
+async _flushPiPImageQueue(bundled = false) {
+  if (!this._pipImageQueue || this._pipImageQueue.length === 0) return;
+  const files = [...this._pipImageQueue];
+  const target = this._pipImageQueueTarget;
+  this._pipImageQueue = [];
+  this._pipImageQueueTarget = null;
+  this._renderPiPImageQueue();
+  for (const file of files) {
+    await this._uploadImage(file, target, bundled);
+  }
+},
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// AVATAR / PFP CUSTOMIZER
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+_updateAvatarPreview() {
+  const preview = document.getElementById('avatar-upload-preview');
+  if (!preview) return;
+  if (this.user.avatar) {
+    preview.innerHTML = `<img src="${this._escapeHtml(this.user.avatar)}" alt="avatar">`;
+  } else {
+    const color = this._getUserColor(this.user.username);
+    const initial = this.user.username.charAt(0).toUpperCase();
+    preview.innerHTML = `<div style="background-color:${color};width:100%;height:100%;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:white">${initial}</div>`;
+  }
+},
+
+_setupAvatarUpload() {
+  console.log('[Avatar Setup v6] Initializing with HTTP upload model...');
+  if (this._avatarDelegationActive) return;
+  this._avatarDelegationActive = true;
+
+  // Pending state — nothing is saved until the user clicks Save
+  this._pendingAvatarFile = null;       // raw File object from <input>
+  this._pendingAvatarPreviewUrl = null; // local preview data URL (display only)
+  this._pendingAvatarRemoved = false;   // user clicked Clear
+  this._pendingAvatarShape = this.user.avatarShape || localStorage.getItem('haven_avatar_shape') || 'circle';
+  this._avatarShape = this._pendingAvatarShape;
+
+  // Initialize preview + shape buttons
+  this._updateAvatarPreview();
+  const picker = document.getElementById('avatar-shape-picker');
+  if (picker) {
+    picker.querySelectorAll('.avatar-shape-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.shape === this._pendingAvatarShape);
+    });
+  }
+
+  // ── Delegated click handler ──
+  document.addEventListener('click', (e) => {
+    // Shape buttons
+    const shapeBtn = e.target.closest('.avatar-shape-btn');
+    if (shapeBtn) {
+      e.preventDefault();
+      const container = document.getElementById('avatar-shape-picker');
+      if (container) container.querySelectorAll('.avatar-shape-btn').forEach(b => b.classList.remove('active'));
+      shapeBtn.classList.add('active');
+      this._pendingAvatarShape = shapeBtn.dataset.shape;
+      this._markAvatarUnsaved();
+      return;
+    }
+
+    // Upload button → trigger file picker
+    if (e.target.closest('#avatar-upload-btn')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const fileInput = document.getElementById('avatar-file-input');
+      if (fileInput) { fileInput.value = ''; fileInput.click(); }
+      return;
+    }
+
+    // Clear/Remove button
+    if (e.target.closest('#avatar-remove-btn')) {
+      e.preventDefault();
+      this._pendingAvatarFile = null;
+      this._pendingAvatarPreviewUrl = null;
+      this._pendingAvatarRemoved = true;
+      const preview = document.getElementById('avatar-upload-preview');
+      if (preview) {
+        const color = this._getUserColor(this.user.username);
+        const initial = this.user.username.charAt(0).toUpperCase();
+        preview.innerHTML = `<div style="background-color:${color};width:100%;height:100%;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:white">${initial}</div>`;
+      }
+      this._markAvatarUnsaved();
+      return;
+    }
+
+    // Save button
+    if (e.target.closest('#avatar-save-btn')) {
+      e.preventDefault();
+      this._commitAvatarSettings();
+      return;
+    }
+  });
+
+  // File input change → stage the file, show local preview
+  document.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'avatar-file-input') {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) return this._showToast('Image too large (max 5 MB)', 'error');
+      if (!file.type.startsWith('image/')) return this._showToast('Not an image file', 'error');
+
+      this._pendingAvatarFile = file;
+      this._pendingAvatarRemoved = false;
+
+      // Show local preview immediately (not sent to server yet)
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        this._pendingAvatarPreviewUrl = ev.target.result;
+        const preview = document.getElementById('avatar-upload-preview');
+        if (preview) {
+          const img = document.createElement('img');
+          img.src = ev.target.result;
+          img.alt = 'avatar preview';
+          preview.innerHTML = '';
+          preview.appendChild(img);
+        }
+        this._markAvatarUnsaved();
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  console.log('[Avatar Setup v6] Ready.');
+},
+
+_markAvatarUnsaved() {
+  const status = document.getElementById('avatar-save-status');
+  if (status) { status.textContent = 'Unsaved changes'; status.style.color = 'var(--warning, orange)'; }
+},
+
+// Commit pending avatar + shape to the server via HTTP (not socket!)
+async _commitAvatarSettings() {
+  const status = document.getElementById('avatar-save-status');
+  if (status) { status.textContent = 'Saving...'; status.style.color = 'var(--text-secondary)'; }
+
+  try {
+    // 1. Upload avatar image via HTTP if a new file was chosen
+    if (this._pendingAvatarFile) {
+      const formData = new FormData();
+      formData.append('avatar', this._pendingAvatarFile);
+      const resp = await fetch('/api/upload-avatar', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${this.token}` },
+        body: formData
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Upload failed');
+
+      // Server stored the file and returned the URL path
+      this.user.avatar = data.url;
+      localStorage.setItem('haven_user', JSON.stringify(this.user));
+      this._pendingAvatarFile = null;
+      this._pendingAvatarPreviewUrl = null;
+      
+      // Update preview to use the server URL
+      const preview = document.getElementById('avatar-upload-preview');
+      if (preview) {
+        const img = document.createElement('img');
+        img.src = data.url;
+        img.alt = 'avatar';
+        preview.innerHTML = '';
+        preview.appendChild(img);
+      }
+      
+      // Notify connected sockets about the avatar change (small URL, not data URL)
+      if (this.socket) this.socket.emit('set-avatar', { url: data.url });
+    }
+
+    // 2. Remove avatar if Clear was clicked
+    if (this._pendingAvatarRemoved) {
+      const resp = await fetch('/api/remove-avatar', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!resp.ok) throw new Error('Failed to remove avatar');
+
+      this.user.avatar = null;
+      localStorage.setItem('haven_user', JSON.stringify(this.user));
+      this._pendingAvatarRemoved = false;
+      
+      if (this.socket) this.socket.emit('set-avatar', { url: '' });
+    }
+
+    // 3. Save shape via HTTP
+    if (this._pendingAvatarShape !== this._avatarShape) {
+      const resp = await fetch('/api/set-avatar-shape', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ shape: this._pendingAvatarShape })
+      });
+      if (!resp.ok) throw new Error('Failed to save shape');
+
+      this._avatarShape = this._pendingAvatarShape;
+      this.user.avatarShape = this._pendingAvatarShape;
+      localStorage.setItem('haven_avatar_shape', this._pendingAvatarShape);
+      localStorage.setItem('haven_user', JSON.stringify(this.user));
+      
+      if (this.socket) this.socket.emit('set-avatar-shape', { shape: this._pendingAvatarShape });
+    }
+
+    if (status) { status.textContent = '✅ Saved!'; status.style.color = 'var(--success, #6f6)'; }
+    this._showToast('Avatar settings saved!', 'success');
+    setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+
+  } catch (err) {
+    console.error('[Avatar] Save failed:', err);
+    if (status) { status.textContent = '❌ ' + err.message; status.style.color = 'var(--danger, red)'; }
+    this._showToast('Failed to save: ' + err.message, 'error');
+  }
+},
+
+_applyAvatarShape() {
+  // No-op: shapes are now per-user and rendered from server data per message.
+  // This function is kept as a safe stub in case it's called elsewhere.
+},
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// SOUND MANAGER (Full Popout — Admin + User)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+_setupSoundManagement() {
+  this.customSounds = [];
+  this._soundHotkeys = JSON.parse(localStorage.getItem('haven_sound_hotkeys') || '{}'); // { hotkey: soundName }
+  this._recordingHotkeyFor = null; // soundName currently recording hotkey
+  this._soundCooldowns = {};       // hotkey
+
+  this._soundPrefs = {}; // { soundName: { hidden, customOrder } }
+  this._showHiddenSounds = false;
+  this._soundboardSidebarMode = localStorage.getItem('haven_soundboard_sidebar_mode') === 'true';
+  this._soundboardListMode = localStorage.getItem('haven_soundboard_list_mode') === 'true';
+  this._loadUserSoundPrefs();
+
+  // Open from admin "Manage Sounds" button
+  const openBtn = document.getElementById('open-sound-manager-btn');
+  if (openBtn) {
+    openBtn.addEventListener('click', () => this._openSoundModal('manage'));
+  }
+  // Open from user "Sound Manager" button
+  const openUserBtn = document.getElementById('open-sound-manager-user-btn');
+  if (openUserBtn) {
+    openUserBtn.addEventListener('click', () => this._openSoundModal('soundboard'));
+  }
+
+  // Close sound modal
+  document.getElementById('close-sound-modal-btn')?.addEventListener('click', () => {
+    document.getElementById('sound-modal').style.display = 'none';
+  });
+  document.getElementById('sound-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+  });
+
+  // Close soundboard sidebar panel (no longer needed — toggle btn handles this)
+
+  // Soundboard sidebar toggle button
+  document.getElementById('sb-sidebar-toggle-btn')?.addEventListener('click', () => {
+    this._toggleSoundboardSidebar();
+  });
+
+  // Soundboard sidebar resize handle
+  {
+    const sbPanel = document.getElementById('sb-sidebar-panel');
+    const sbResizeHandle = document.getElementById('sb-sidebar-resize-handle');
+    if (sbPanel && sbResizeHandle) {
+      const savedWidth = localStorage.getItem('haven_sb_sidebar_width');
+      if (savedWidth) sbPanel.style.width = savedWidth + 'px';
+
+      let sbDragging = false, sbStartX = 0, sbStartW = 0;
+      sbResizeHandle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        sbDragging = true;
+        sbStartX = e.clientX;
+        sbStartW = sbPanel.getBoundingClientRect().width;
+        sbResizeHandle.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+      });
+      document.addEventListener('mousemove', (e) => {
+        if (!sbDragging) return;
+        let w = sbStartW + (sbStartX - e.clientX);
+        w = Math.max(160, Math.min(420, w));
+        sbPanel.style.width = w + 'px';
+        window._updateSbToggleRight?.(); // keep voice/users btn aligned during drag
+      });
+      document.addEventListener('mouseup', () => {
+        if (!sbDragging) return;
+        sbDragging = false;
+        sbResizeHandle.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem('haven_sb_sidebar_width', parseInt(sbPanel.style.width));
+        window._updateSbToggleRight?.();
+      });
+    }
+  }
+
+  // Tab switching
+  document.querySelectorAll('.sound-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.sound-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.sound-tab-content').forEach(c => c.classList.remove('active'));
+      tab.classList.add('active');
+      const target = document.getElementById(`sound-tab-${tab.dataset.tab}`);
+      if (target) target.classList.add('active');
+    });
+  });
+
+  // Upload button (admin)
+  const uploadBtn = document.getElementById('sound-upload-btn');
+  const fileInput = document.getElementById('sound-file-input');
+  const nameInput = document.getElementById('sound-name-input');
+  if (uploadBtn && fileInput) {
+    uploadBtn.addEventListener('click', async () => {
+      const file = fileInput.files[0];
+      const name = nameInput ? nameInput.value.trim() : '';
+      if (!file) return this._showToast('Select an audio file', 'error');
+      if (!name) return this._showToast('Enter a sound name', 'error');
+      const maxSoundKb = parseInt(this.serverSettings?.max_sound_kb) || 1024;
+      if (file.size > maxSoundKb * 1024) return this._showToast(`Sound file too large (max ${maxSoundKb >= 1024 ? (maxSoundKb / 1024) + ' MB' : maxSoundKb + ' KB'})`, 'error');
+
+      const formData = new FormData();
+      formData.append('sound', file);
+      formData.append('name', name);
+
+      try {
+        this._showToast('Uploading sound...', 'info');
+        const res = await fetch('/api/upload-sound', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}` },
+          body: formData
+        });
+        if (!res.ok) {
+          let errMsg = `Upload failed (${res.status})`;
+          try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+          return this._showToast(errMsg, 'error');
+        }
+        this._showToast(`Sound "${name}" uploaded!`, 'success');
+        fileInput.value = '';
+        nameInput.value = '';
+        this._loadCustomSounds();
+      } catch {
+        this._showToast('Upload failed', 'error');
+      }
+    });
+  }
+
+  
+  // Show/hide hidden sounds toggle
+  const showHiddenCheckbox = document.getElementById('soundboard-show-hidden');
+  if (showHiddenCheckbox) {
+    showHiddenCheckbox.addEventListener('change', (e) => {
+      this._showHiddenSounds = e.target.checked;
+      this._renderSoundboard(
+        this._soundboardPip
+          ? (document.getElementById('sb-pip-search')?.value?.trim() || '')
+          : (document.getElementById('soundboard-search')?.value?.trim() || '')
+      );
+    });
+  }
+
+  // List view mode toggle (popup/pip grid layout — separate from sidebar mode)
+  const listModeCheckbox = document.getElementById('soundboard-list-mode');
+  if (listModeCheckbox) {
+    listModeCheckbox.checked = this._soundboardListMode;
+    listModeCheckbox.addEventListener('change', (e) => {
+      this._soundboardListMode = e.target.checked;
+      localStorage.setItem('haven_soundboard_list_mode', this._soundboardListMode ? 'true' : 'false');
+      this._renderSoundboard(
+        this._soundboardPip
+          ? (document.getElementById('sb-pip-search')?.value?.trim() || '')
+          : (document.getElementById('soundboard-search')?.value?.trim() || '')
+      );
+    });
+  }
+
+  // Sidebar layout toggle — closes the popup and opens the sidebar panel
+  const _applySoundboardSidebarMode = (val) => {
+    this._soundboardSidebarMode = val;
+    localStorage.setItem('haven_soundboard_sidebar_mode', val ? 'true' : 'false');
+    // Sync all sidebar mode checkboxes (popup + settings page)
+    ['soundboard-sidebar-mode', 'soundboard-sidebar-mode-settings'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.checked = val;
+    });
+    const panel = document.getElementById('sb-sidebar-panel');
+    const toggleBtn = document.getElementById('sb-sidebar-toggle-btn');
+    if (val) {
+      // Close modal/pip, open sidebar panel
+      document.getElementById('sound-modal').style.display = 'none';
+      if (panel) {
+        panel.classList.remove('sb-hidden');
+        this._renderSoundboardSidebar();
+        const search = document.getElementById('sb-sidebar-search');
+        if (search && !search._sbListenerAttached) {
+          search._sbListenerAttached = true;
+          search.addEventListener('input', () => this._renderSoundboardSidebar(search.value.trim()));
+        }
+      }
+      if (toggleBtn) { toggleBtn.style.display = ''; toggleBtn.textContent = '\u276E'; }
+      window._updateSbToggleRight?.();
+    } else {
+      // Hide sidebar panel and toggle button
+      if (panel) panel.classList.add('sb-hidden');
+      if (toggleBtn) toggleBtn.style.display = 'none';
+      window._updateSbToggleRight?.();
+    }
+  };
+  // Bind sidebar mode checkboxes
+  ['soundboard-sidebar-mode', 'soundboard-sidebar-mode-settings'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.checked = this._soundboardSidebarMode;
+      el.addEventListener('change', (e) => _applySoundboardSidebarMode(e.target.checked));
+    }
+  });
+
+  // Init: show toggle button when sidebar mode is enabled, but keep panel CLOSED until user clicks
+  {
+    const panel = document.getElementById('sb-sidebar-panel');
+    const toggleBtn = document.getElementById('sb-sidebar-toggle-btn');
+    // Always start with panel hidden — user must click to open it
+    if (panel) panel.classList.add('sb-hidden');
+    if (toggleBtn) {
+      // Show the toggle arrow button if sidebar mode is on
+      if (this._soundboardSidebarMode) {
+        toggleBtn.style.display = '';
+        toggleBtn.textContent = '\u276F'; // pointing right = panel is closed
+      } else {
+        toggleBtn.style.display = 'none';
+      }
+    }
+    // Clear any stale hidden state
+    localStorage.removeItem('haven_sb_sidebar_hidden');
+    // Define the helper now (app-ui and app-admin will also call it).
+    // Layout is: ... | main | sb-panel | right-sidebar (voice/users)
+    // - Voice/users toggle btn sits at the LEFT edge of right-sidebar (right:width-of-voice when open, right:0 when collapsed).
+    // - Soundboard toggle btn sits at the LEFT edge of sb-panel, which is also offset by voice width.
+    // Both buttons are staggered vertically in CSS so they never visually collide when both end up at right:0.
+    window._updateSbToggleRight = () => {
+      const sbPanel    = document.getElementById('sb-sidebar-panel');
+      const rightSb    = document.getElementById('right-sidebar');
+      const voiceBtn   = document.getElementById('sidebar-toggle-btn');
+      const sbBtn      = document.getElementById('sb-sidebar-toggle-btn');
+      const sbOpen     = sbPanel && !sbPanel.classList.contains('sb-hidden');
+      const voiceOpen  = rightSb && !rightSb.classList.contains('collapsed');
+
+      // `useRendered=false` places the button off the panel's *requested*
+      // width (style.width / default) so it slides smoothly while the panel's
+      // width transition is still animating. `useRendered=true` re-reads the
+      // *actual* laid-out width once the animation settles — this closes the
+      // gap that appeared when a narrow window let flex-shrink squeeze the
+      // panel below its requested width (min-width:200px floor), leaving the
+      // toggle stranded to the left of the panel's real edge.
+      const place = (useRendered) => {
+        const sbWidth = sbOpen
+          ? (useRendered ? (sbPanel.offsetWidth || parseInt(sbPanel.style.width) || 220)
+                         : (parseInt(sbPanel.style.width) || sbPanel.offsetWidth || 220))
+          : 0;
+        const voiceWidth = voiceOpen
+          ? (useRendered ? (rightSb.offsetWidth || parseInt(rightSb.style.width) || 240)
+                         : (parseInt(rightSb.style.width) || rightSb.offsetWidth || 240))
+          : 0;
+        if (voiceBtn) voiceBtn.style.right = voiceWidth + 'px';
+        if (sbBtn) {
+          sbBtn.style.right = (voiceWidth + sbWidth) + 'px';
+          // When the sb panel is OPEN, the toggle button sits at the panel's
+          // left edge — a horizontal position the voice/users toggle never
+          // occupies. Align it with the voice header (top: 72px) so it stops
+          // visually crowding the first content row, which under the prior
+          // 114px stagger looked like an overlap with the top of the sound
+          // list. When the panel is CLOSED, both toggles can end up at
+          // right:0, so restore the 114px stagger to keep them from stacking.
+          sbBtn.style.top = sbOpen ? '72px' : '114px';
+        }
+      };
+
+      place(false);                       // immediate: target width (smooth during anim)
+      clearTimeout(window._sbToggleRealignTimer);
+      window._sbToggleRealignTimer = setTimeout(() => place(true), 300); // settle: real width
+    };
+    window._updateSbToggleRight();
+  }
+
+
+  // Soundboard search
+  const searchInput = document.getElementById('soundboard-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => this._renderSoundboard(searchInput.value.trim()));
+  }
+
+  // Soundboard popout button
+  document.getElementById('soundboard-popout-btn')?.addEventListener('click', () => this._popOutSoundboard());
+
+  // Global hotkey listener
+  document.addEventListener('keydown', (e) => {
+    // Ignore key-repeat events (holding a key down)
+    if (e.repeat) return;
+
+    // If recording a hotkey for a sound, wait for a non-modifier key
+    if (this._recordingHotkeyFor) {
+      // Let modifier-only presses pass so the user can build combos
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+      e.preventDefault();
+      const hk = this._buildHotkeyString(e);
+      if (hk === 'Escape') {
+        this._recordingHotkeyFor = null;
+        this._renderSoundboard();
+        return;
+      }
+      // Remove any old binding with same hotkey
+      Object.keys(this._soundHotkeys).forEach(k => {
+        if (this._soundHotkeys[k] === this._recordingHotkeyFor) delete this._soundHotkeys[k];
+      });
+      this._soundHotkeys[hk] = this._recordingHotkeyFor;
+      localStorage.setItem('haven_sound_hotkeys', JSON.stringify(this._soundHotkeys));
+      this._showToast(`Hotkey [${hk}] set for "${this._recordingHotkeyFor}"`, 'success');
+      this._recordingHotkeyFor = null;
+      this._renderSoundboard();
+      return;
+    }
+    // Check if a bound hotkey was pressed (only when not typing in inputs)
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    const hk = this._buildHotkeyString(e);
+    const soundName = this._soundHotkeys[hk];
+    if (soundName && this.customSounds) {
+      // Cooldown: prevent rapid re-trigger (300ms minimum between plays)
+      const now = Date.now();
+      if (this._soundCooldowns[hk] && now - this._soundCooldowns[hk] < 300) return;
+      this._soundCooldowns[hk] = now;
+      const s = this.customSounds.find(cs => cs.name === soundName);
+      if (s) {
+        e.preventDefault();
+        this._playSoundFile(s.url);
+      }
+    }
+  });
+
+  // Load custom sounds on init
+  this._loadCustomSounds();
+},
+
+_buildHotkeyString(e) {
+  const parts = [];
+  if (e.ctrlKey) parts.push('Ctrl');
+  if (e.altKey) parts.push('Alt');
+  if (e.shiftKey) parts.push('Shift');
+  const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  if (!['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) parts.push(key);
+  return parts.join('+');
+},
+
+_openSoundModal(tab = 'soundboard') {
+  const modal = document.getElementById('sound-modal');
+  if (!modal) return;
+  // If the soundboard is already popped out AND the caller wants the soundboard
+  // tab, bring the PiP into focus instead of reopening the modal. For 'assign'
+  // and 'manage' tabs we still open the modal — the popout only holds the
+  // soundboard view, so other tabs would otherwise be unreachable while
+  // popped out (#5419, including the admin Custom Sounds button which goes
+  // through this path with tab='manage').
+  if (this._soundboardPip && tab === 'soundboard') {
+    this._soundboardPip.style.zIndex = '10001';
+    setTimeout(() => { if (this._soundboardPip) this._soundboardPip.style.zIndex = '10000'; }, 400);
+    return;
+  }
+  // In sidebar mode, open the sidebar panel instead of the modal (for the soundboard tab)
+  if (this._soundboardSidebarMode && tab === 'soundboard') {
+    this._toggleSoundboardSidebar();
+    return;
+  }
+  // Show admin tab only if user is admin or has manage_soundboard permission
+  const adminTab = modal.querySelector('.sound-tab-admin');
+  if (adminTab) adminTab.style.display = (this.user?.is_admin || this._hasPerm('manage_soundboard')) ? '' : 'none';
+  // Activate requested tab
+  modal.querySelectorAll('.sound-tab').forEach(t => t.classList.remove('active'));
+  modal.querySelectorAll('.sound-tab-content').forEach(c => c.classList.remove('active'));
+  const tabBtn = modal.querySelector(`.sound-tab[data-tab="${tab}"]`);
+  const tabContent = document.getElementById(`sound-tab-${tab}`);
+  if (tabBtn) tabBtn.classList.add('active');
+  if (tabContent) tabContent.classList.add('active');
+  modal.style.display = 'flex';
+  // Sync popout button state
+  const popoutBtn = document.getElementById('soundboard-popout-btn');
+  if (popoutBtn) { popoutBtn.textContent = '\u29c9'; popoutBtn.title = 'Pop out soundboard'; }
+  this._renderSoundboard();
+  this._renderAssignTab();
+},
+
+// ── Custom dropdown wrapper for native <select> elements (#5418) ──
+// Native <select> popups render outside the Haven window and can't be
+// constrained or styled. This wraps a select with a custom display + panel
+// that lives inside the modal, scrolls when long, and stays inside bounds.
+_enhanceSelectAsCustom(selectEl) {
+  if (!selectEl) return;
+  // Re-entry path: rebuild options from the underlying <select>.
+  if (selectEl.dataset.customEnhanced === '1') {
+    const wrap = selectEl.parentElement;
+    if (wrap && wrap._csRebuild) wrap._csRebuild();
+    return;
+  }
+  selectEl.dataset.customEnhanced = '1';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'custom-select-wrap ' + (selectEl.className || '');
+  wrap.style.position = 'relative';
+  selectEl.parentNode.insertBefore(wrap, selectEl);
+  wrap.appendChild(selectEl);
+  selectEl.style.display = 'none';
+
+  const display = document.createElement('button');
+  display.type = 'button';
+  display.className = 'custom-select-display';
+  display.innerHTML = '<span class="custom-select-label"></span><span class="custom-select-caret">▾</span>';
+  wrap.appendChild(display);
+
+  const panel = document.createElement('div');
+  panel.className = 'custom-select-panel';
+  panel.style.display = 'none';
+  wrap.appendChild(panel);
+
+  const labelEl = display.querySelector('.custom-select-label');
+
+  const buildPanel = () => {
+    panel.innerHTML = '';
+    const addOption = (opt) => {
+      const item = document.createElement('div');
+      item.className = 'custom-select-option';
+      item.textContent = opt.textContent;
+      item.dataset.value = opt.value;
+      if (opt.value === selectEl.value) item.classList.add('selected');
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectEl.value = opt.value;
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+        syncLabel();
+        panel.style.display = 'none';
+      });
+      panel.appendChild(item);
+    };
+    Array.from(selectEl.children).forEach(child => {
+      if (child.tagName === 'OPTGROUP') {
+        const grp = document.createElement('div');
+        grp.className = 'custom-select-group-label';
+        grp.textContent = child.label;
+        panel.appendChild(grp);
+        Array.from(child.children).forEach(addOption);
+      } else if (child.tagName === 'OPTION') {
+        addOption(child);
+      }
+    });
+  };
+
+  const syncLabel = () => {
+    const opt = Array.from(selectEl.querySelectorAll('option')).find(o => o.value === selectEl.value);
+    labelEl.textContent = opt ? opt.textContent : '';
+  };
+
+  const openPanel = () => {
+    buildPanel();
+    panel.style.display = 'block';
+    // Position: prefer below; flip to above if not enough room.
+    const rect = display.getBoundingClientRect();
+    const modalContent = display.closest('.modal-content') || display.closest('.modal') || document.body;
+    const mc = modalContent.getBoundingClientRect();
+    const below = mc.bottom - rect.bottom;
+    const above = rect.top - mc.top;
+    const room = Math.max(120, Math.min(280, Math.max(below, above) - 16));
+    panel.style.maxHeight = room + 'px';
+    if (below < 160 && above > below) {
+      panel.classList.add('flip-up');
+    } else {
+      panel.classList.remove('flip-up');
+    }
+  };
+
+  display.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (panel.style.display === 'none') openPanel();
+    else panel.style.display = 'none';
+  });
+
+  const docClick = (e) => {
+    if (!wrap.contains(e.target)) panel.style.display = 'none';
+  };
+  document.addEventListener('click', docClick);
+
+  selectEl.addEventListener('change', syncLabel);
+  wrap._csRebuild = buildPanel;
+  syncLabel();
+},
+
+_closeSoundboardForVoiceLeave() {
+  // Called from _leaveVoice. The soundboard is gated to voice-only use,
+  // so when the user leaves voice we close any open soundboard surface:
+  // sidebar panel, modal, or popped-out PiP.
+  const panel = document.getElementById('sb-sidebar-panel');
+  if (panel && !panel.classList.contains('sb-hidden')) {
+    this._toggleSoundboardSidebar();
+  }
+  const modal = document.getElementById('sound-modal');
+  if (modal && modal.style.display && modal.style.display !== 'none') {
+    modal.style.display = 'none';
+  }
+  if (this._soundboardPip) {
+    this._popInSoundboard(false);
+  }
+},
+
+_toggleSoundboardSidebar() {
+  const panel = document.getElementById('sb-sidebar-panel');
+  const btn = document.getElementById('sb-sidebar-toggle-btn');
+  if (!panel) return;
+  const isNowHidden = !panel.classList.contains('sb-hidden');
+  panel.classList.toggle('sb-hidden', isNowHidden);
+  localStorage.setItem('haven_sb_sidebar_hidden', isNowHidden ? '1' : '0');
+  if (btn) btn.textContent = isNowHidden ? '\u276F' : '\u276E';
+  if (!isNowHidden) {
+    this._renderSoundboardSidebar();
+    const search = document.getElementById('sb-sidebar-search');
+    if (search && !search._sbListenerAttached) {
+      search._sbListenerAttached = true;
+      search.addEventListener('input', () => this._renderSoundboardSidebar(search.value.trim()));
+    }
+  }
+  window._updateSbToggleRight?.();
+},
+
+_renderSoundboardSidebar(filter = '') {
+  const grid = document.getElementById('sb-sidebar-grid');
+  if (!grid) return;
+  const all = (this.customSounds || []).filter(s =>
+    (!filter || s.name.toLowerCase().includes(filter.toLowerCase())) &&
+    (!this._soundPrefs[s.name]?.hidden || this._showHiddenSounds)
+  );
+  const hotkeyMap = {};
+  Object.entries(this._soundHotkeys).forEach(([hk, name]) => { hotkeyMap[name] = hk; });
+
+  if (all.length === 0) {
+    grid.innerHTML = `<p class="muted-text">${filter ? 'No matching sounds' : 'No sounds available'}</p>`;
+    return;
+  }
+
+  // Split into custom (user-uploaded) and built-in groups. Custom always shows first.
+  const customSounds  = all.filter(s => !s.builtin);
+  const builtinSounds = all.filter(s =>  s.builtin);
+
+  const renderBtn = (s) => {
+    const hk = hotkeyMap[s.name];
+    const hotkeyHtml = hk ? `<span class="sb-hotkey">${this._escapeHtml(hk)}</span>` : '';
+    return `<button class="soundboard-btn${this._soundPrefs[s.name]?.hidden ? ' hidden-sound' : ''}" data-name="${this._escapeHtml(s.name)}" data-url="${this._escapeHtml(s.url)}"><span class="sb-name">${this._escapeHtml(s.name)}</span>${hotkeyHtml}</button>`;
+  };
+
+  // Persisted open/closed state for each group (default: both open).
+  const customOpen  = localStorage.getItem('haven_sb_sidebar_custom_open')  !== '0';
+  const builtinOpen = localStorage.getItem('haven_sb_sidebar_builtin_open') !== '0';
+
+  const renderGroup = (label, sounds, openKey, isOpen) => {
+    if (sounds.length === 0) return '';
+    return `
+      <details class="sb-sidebar-group" data-open-key="${openKey}"${isOpen ? ' open' : ''}>
+        <summary class="sb-sidebar-group-label">${label} <span class="sb-sidebar-group-count">${sounds.length}</span></summary>
+        <div class="sb-sidebar-group-body">${sounds.map(renderBtn).join('')}</div>
+      </details>
+    `;
+  };
+
+  grid.innerHTML =
+    renderGroup('Custom',  customSounds,  'haven_sb_sidebar_custom_open',  customOpen) +
+    renderGroup('Built-in', builtinSounds, 'haven_sb_sidebar_builtin_open', builtinOpen);
+
+  grid.querySelectorAll('.soundboard-btn').forEach(btn => {
+    btn.addEventListener('click', () => this._playSoundFile(btn.dataset.url));
+  });
+  // Persist open/closed state of each category.
+  grid.querySelectorAll('details.sb-sidebar-group').forEach(d => {
+    d.addEventListener('toggle', () => {
+      localStorage.setItem(d.dataset.openKey, d.open ? '1' : '0');
+    });
+  });
+},
+
+_popOutSoundboard() {
+  if (this._soundboardPip) {
+    this._popInSoundboard();
+    return;
+  }
+
+  // Close the modal
+  document.getElementById('sound-modal').style.display = 'none';
+
+  const pip = document.createElement('div');
+  pip.id = 'sb-pip-overlay';
+  pip.className = 'sb-pip-overlay';
+  pip.innerHTML = `
+    <div class="music-pip-header" id="sb-pip-drag">
+      <button class="music-pip-btn" id="sb-pip-popin" title="Pop back in">\u29c8</button>
+      <span class="music-pip-label">\uD83C\uDFB5 Soundboard</span>
+      <button class="music-pip-btn" id="sb-pip-close" title="Close">\u2715</button>
+    </div>
+    <div class="sb-pip-body">
+      <div class="sound-search-row" style="padding:0;margin-bottom:0">
+        <input type="text" id="sb-pip-search" placeholder="Search sounds..." class="settings-text-input" style="flex:1;font-size:12px">
+      </div>
+      <div id="sb-pip-grid" class="sb-pip-grid"></div>
+    </div>
+  `;
+  document.body.appendChild(pip);
+  this._soundboardPip = pip;
+
+  this._renderSoundboard();
+
+  document.getElementById('sb-pip-search').addEventListener('input', (e) => {
+    this._renderSoundboard(e.target.value.trim());
+  });
+  document.getElementById('sb-pip-popin').addEventListener('click', () => this._popInSoundboard(true));
+  document.getElementById('sb-pip-close').addEventListener('click', () => this._popInSoundboard(false));
+
+  this._initPipDrag(pip, document.getElementById('sb-pip-drag'));
+},
+
+_popInSoundboard(reopen = false) {
+  if (!this._soundboardPip) return;
+  this._soundboardPip.remove();
+  this._soundboardPip = null;
+  if (reopen) this._openSoundModal('soundboard');
+},
+
+_playSoundFile(url) {
+  try {
+    const vol = Math.max(0, Math.min(1, this.notifications.volume * this.notifications.volume));
+    // If in voice chat, route through VC so other users hear the sound too
+    if (this.voice && this.voice.inVoice) {
+      // Respect the per-channel soundboard toggle for the voice channel the
+      // user is currently in. When an admin turns the soundboard off there,
+      // sounds can't be played into that VC by anyone.
+      const vcCode = this.voice.currentChannel;
+      const vcCh = vcCode && Array.isArray(this.channels) ? this.channels.find(c => c.code === vcCode) : null;
+      if (vcCh && vcCh.soundboard_enabled === 0) {
+        return this._showToast(t('media.soundboard_disabled'), 'error');
+      }
+      if (this.voice.playSoundToVC(url, vol)) return;
+    }
+    // Fallback: play locally only
+    const audio = new Audio(url);
+    audio.volume = vol;
+    audio.play().catch(() => {});
+  } catch { /* audio not available */ }
+},
+
+async _loadCustomSounds() {
+  try {
+    const res = await fetch('/api/sounds', {
+      headers: { 'Authorization': `Bearer ${this.token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const sounds = data.sounds || [];
+    this.customSounds = sounds; // [{name, url}]
+
+    // Update all notification sound select dropdowns
+    this._updateSoundSelects(sounds);
+
+    // Render admin sound list
+    this._renderSoundList(sounds);
+
+    // Render soundboard if modal is visible or PiP is open
+    if (document.getElementById('sound-modal')?.style.display === 'flex' || this._soundboardPip) {
+      this._renderSoundboard();
+      this._renderAssignTab();
+    }
+    // Re-render sidebar panel if it's visible
+    const sbPanel = document.getElementById('sb-sidebar-panel');
+    if (sbPanel && !sbPanel.classList.contains('sb-hidden')) {
+      this._renderSoundboardSidebar(document.getElementById('sb-sidebar-search')?.value?.trim() || '');
+    }
+  } catch { /* ignore */ }
+},
+
+async _loadUserSoundPrefs() {
+  try {
+    const res = await fetch('/api/user-sound-prefs', {
+      headers: { 'Authorization': `Bearer ${this.token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    this._soundPrefs = data.prefs || {};
+  } catch { /* non-critical – run with empty prefs if endpoint unavailable */ }
+},
+
+async _saveUserSoundPrefs() {
+  try {
+    await fetch('/api/user-sound-prefs', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ prefs: this._soundPrefs })
+    });
+  } catch { /* non-critical */ }
+},
+
+_updateSoundSelects(sounds) {
+  // Update ALL 5 notification selects with custom sounds
+  const selects = ['notif-msg-sound', 'notif-sent-sound', 'notif-mention-sound', 'notif-join-sound', 'notif-leave-sound'];
+  selects.forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+
+    // Remember current value
+    const currentVal = sel.value;
+
+    // Remove old custom options
+    sel.querySelectorAll('option[data-custom]').forEach(o => o.remove());
+    sel.querySelectorAll('optgroup[data-custom-group]').forEach(o => o.remove());
+
+    const noneOpt = sel.querySelector('option[value="none"]');
+
+    // Add custom sounds optgroup
+    const builtins = sounds.filter(s => s.builtin);
+    const customs  = sounds.filter(s => !s.builtin);
+
+    if (builtins.length > 0) {
+      const builtinGroup = document.createElement('optgroup');
+      builtinGroup.label = `🎙️ ${t('modals.sound_manager.group_builtin')}`;
+      builtinGroup.dataset.customGroup = '1';
+      builtins.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = `custom:${s.name}`;
+        opt.textContent = s.name;
+        opt.dataset.custom = '1';
+        opt.dataset.url = s.url;
+        builtinGroup.appendChild(opt);
+      });
+      sel.insertBefore(builtinGroup, noneOpt);
+    }
+
+    if (customs.length > 0) {
+      const customGroup = document.createElement('optgroup');
+      customGroup.label = `🎵 ${t('modals.sound_manager.group_custom')}`;
+      customGroup.dataset.customGroup = '1';
+      customs.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = `custom:${s.name}`;
+        opt.textContent = s.name;
+        opt.dataset.custom = '1';
+        opt.dataset.url = s.url;
+        customGroup.appendChild(opt);
+      });
+      sel.insertBefore(customGroup, noneOpt);
+    }
+
+    // Restore value
+    sel.value = currentVal;
+  });
+},
+
+_renderSoundList(sounds) {
+  const list = document.getElementById('custom-sounds-list');
+  if (!list) return;
+
+  const builtins = sounds.filter(s => s.builtin);
+  const custom   = sounds.filter(s => !s.builtin);
+
+  if (builtins.length === 0 && custom.length === 0) {
+    list.innerHTML = `<p class="muted-text">${t('modals.sound_manager.no_custom_sounds')}</p>`;
+    return;
+  }
+
+  const builtinHtml = builtins.length === 0 ? '' : `
+    <details class="sound-section">
+      <summary class="sound-section-label">${t('modals.sound_manager.group_builtin')}</summary>
+      ${builtins.map(s => `
+        <div class="custom-sound-item" data-name="${this._escapeHtml(s.name)}">
+          <span class="custom-sound-name">${this._escapeHtml(s.name)}</span>
+          <button class="btn-xs sound-preview-btn" data-url="${this._escapeHtml(s.url)}" title="${t('modals.sound_manager.preview_btn')}">&#x25B6;</button>
+          <button class="btn-xs sound-delete-btn" data-name="${this._escapeHtml(s.name)}" title="${t('modals.sound_manager.delete_btn')}">&#x1F5D1;</button>
+        </div>
+      `).join('')}
+    </details>
+  `;
+
+  const customHtml = custom.length === 0 ? '' : `
+    <details class="sound-section" open>
+      <summary class="sound-section-label">${t('modals.sound_manager.group_custom')}</summary>
+      ${custom.map(s => `
+        <div class="custom-sound-item" data-name="${this._escapeHtml(s.name)}">
+          <span class="custom-sound-name">${this._escapeHtml(s.name)}</span>
+          <button class="btn-xs sound-preview-btn" data-url="${this._escapeHtml(s.url)}" title="${t('modals.sound_manager.preview_btn')}">&#x25B6;</button>
+          <button class="btn-xs sound-rename-btn" data-name="${this._escapeHtml(s.name)}" title="${t('modals.sound_manager.rename_btn')}">&#x270F;</button>
+          <button class="btn-xs sound-delete-btn" data-name="${this._escapeHtml(s.name)}" title="${t('modals.sound_manager.delete_btn')}">&#x1F5D1;</button>
+        </div>
+      `).join('')}
+    </details>
+  `;
+
+  // Custom first, then built-in
+  list.innerHTML = customHtml + builtinHtml;
+
+
+  // Preview buttons
+  list.querySelectorAll('.sound-preview-btn').forEach(btn => {
+    btn.addEventListener('click', () => this._playSoundFile(btn.dataset.url));
+  });
+
+  // Rename buttons
+  list.querySelectorAll('.sound-rename-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.custom-sound-item');
+      const nameSpan = item.querySelector('.custom-sound-name');
+      const oldName = btn.dataset.name;
+      // Replace span with input
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = oldName;
+      input.maxLength = 30;
+      input.className = 'custom-sound-name-input';
+      nameSpan.replaceWith(input);
+      input.focus();
+      input.select();
+
+      const doRename = async () => {
+        const newName = input.value.trim();
+        if (!newName || newName === oldName) {
+          // Revert
+          const span = document.createElement('span');
+          span.className = 'custom-sound-name';
+          span.textContent = oldName;
+          input.replaceWith(span);
+          return;
+        }
+        try {
+          const res = await fetch(`/api/sounds/${encodeURIComponent(oldName)}`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newName })
+          });
+          if (res.ok) {
+            // Update hotkey bindings
+            Object.keys(this._soundHotkeys).forEach(k => {
+              if (this._soundHotkeys[k] === oldName) this._soundHotkeys[k] = newName;
+            });
+            localStorage.setItem('haven_sound_hotkeys', JSON.stringify(this._soundHotkeys));
+            this._showToast(`Renamed to "${newName}"`, 'success');
+            this._loadCustomSounds();
+          } else {
+            let errMsg = 'Rename failed';
+            try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+            this._showToast(errMsg, 'error');
+            const span = document.createElement('span');
+            span.className = 'custom-sound-name';
+            span.textContent = oldName;
+            input.replaceWith(span);
+          }
+        } catch {
+          this._showToast('Rename failed', 'error');
+        }
+      };
+
+      input.addEventListener('blur', doRename);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.value = oldName; input.blur(); }
+      });
+    });
+  });
+
+  // Delete buttons
+  list.querySelectorAll('.sound-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = btn.dataset.name;
+      try {
+        const res = await fetch(`/api/sounds/${encodeURIComponent(name)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+        if (res.ok) {
+          this._showToast(`Sound "${name}" deleted`, 'success');
+          // Clean up hotkey
+          Object.keys(this._soundHotkeys).forEach(k => {
+            if (this._soundHotkeys[k] === name) delete this._soundHotkeys[k];
+          });
+          localStorage.setItem('haven_sound_hotkeys', JSON.stringify(this._soundHotkeys));
+          this._loadCustomSounds();
+        } else {
+          this._showToast('Delete failed', 'error');
+        }
+      } catch {
+        this._showToast('Delete failed', 'error');
+      }
+    });
+  });
+},
+
+// ── Soundboard Tab ─────────────────────────────────────
+
+_renderSoundboard(filter = '') {
+  // Render into both the modal grid and the PiP grid if it's open
+  const grids = [];
+  const modalGrid = document.getElementById('soundboard-grid');
+  if (modalGrid) grids.push(modalGrid);
+  const pipGrid = this._soundboardPip ? document.getElementById('sb-pip-grid') : null;
+  if (pipGrid) grids.push(pipGrid);
+  if (grids.length === 0) return;
+
+  let sounds = (this.customSounds || []).filter(s =>
+    (!filter || s.name.toLowerCase().includes(filter.toLowerCase())) &&
+    (!this._soundPrefs[s.name]?.hidden || this._showHiddenSounds)
+  );
+
+  // Reverse lookup: soundName → hotkey
+  const hotkeyMap = {};
+  Object.entries(this._soundHotkeys).forEach(([hk, name]) => { hotkeyMap[name] = hk; });
+
+  const html = sounds.length === 0
+    ? `<p class="muted-text" style="grid-column:1/-1">${filter ? 'No matching sounds' : 'No sounds available'}</p>`
+    : sounds.map(s => {
+        const hk = hotkeyMap[s.name];
+        const hotkeyHtml = hk
+          ? `<span class="sb-hotkey-row">
+               <span class="sb-hotkey">${this._escapeHtml(hk)}</span>
+               <span class="sb-hotkey-clear" data-sound="${this._escapeHtml(s.name)}" title="Remove hotkey">&times;</span>
+             </span>`
+          : `<span class="sb-hotkey-set" data-sound="${this._escapeHtml(s.name)}">Set hotkey</span>`;
+        return `<button class="soundboard-btn${this._soundPrefs[s.name]?.hidden ? ' hidden-sound' : ''}" data-name="${this._escapeHtml(s.name)}" data-url="${this._escapeHtml(s.url)}"><span class="sb-hide-btn" data-sound="${this._escapeHtml(s.name)}" title="${this._soundPrefs[s.name]?.hidden ? 'Show' : 'Hide'} this sound">👁️</span><span class="sb-name">${this._escapeHtml(s.name)}</span>
+          ${hotkeyHtml}
+        </button>`;
+      }).join('');
+
+  grids.forEach(grid => {
+    grid.innerHTML = html;
+    if (sounds.length === 0) return;
+
+    // Apply list mode class to popup/pip grids
+    if (this._soundboardListMode) grid.classList.add('list-mode');
+    else grid.classList.remove('list-mode');
+
+    // Click the main button area to play
+    grid.querySelectorAll('.soundboard-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        if (e.target.closest('.sb-hotkey-clear') || e.target.closest('.sb-hotkey-set')) return;
+        this._playSoundFile(btn.dataset.url);
+      });
+    });
+
+    // "Set hotkey" link
+    grid.querySelectorAll('.sb-hotkey-set').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const name = el.dataset.sound;
+        this._recordingHotkeyFor = name;
+        const btn = el.closest('.soundboard-btn');
+        if (btn) btn.classList.add('hotkey-recording');
+        this._showToast(`Press a key combo for "${name}" (Esc to cancel)`, 'info');
+      });
+    });
+
+    // "×" remove hotkey button
+    grid.querySelectorAll('.sb-hotkey-clear').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const name = el.dataset.sound;
+        const hk = hotkeyMap[name];
+        if (hk) {
+          delete this._soundHotkeys[hk];
+          localStorage.setItem('haven_sound_hotkeys', JSON.stringify(this._soundHotkeys));
+          this._showToast(`Hotkey removed for "${name}"`, 'info');
+          this._renderSoundboard(
+            this._soundboardPip
+              ? (document.getElementById('sb-pip-search')?.value?.trim() || '')
+              : (document.getElementById('soundboard-search')?.value?.trim() || '')
+          );
+        }
+      });
+    });
+
+    // Hide / show button (👁️)
+    grid.querySelectorAll('.sb-hide-btn').forEach(el => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const name = el.dataset.sound;
+        if (!this._soundPrefs[name]) this._soundPrefs[name] = {};
+        this._soundPrefs[name].hidden = !this._soundPrefs[name].hidden;
+        await this._saveUserSoundPrefs();
+        const searchVal = this._soundboardPip
+          ? (document.getElementById('sb-pip-search')?.value?.trim() || '')
+          : (document.getElementById('soundboard-search')?.value?.trim() || '');
+        this._renderSoundboard(searchVal);
+      });
+    });
+
+    // Right-click also starts hotkey recording
+    grid.querySelectorAll('.soundboard-btn').forEach(btn => {
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (e.target.closest('.sb-hotkey-clear')) return;
+        const name = btn.dataset.name;
+        this._recordingHotkeyFor = name;
+        btn.classList.add('hotkey-recording');
+        this._showToast(`Press a key combo for "${name}" (Esc to cancel)`, 'info');
+      });
+    });
+  });
+},
+
+// ── Assign to Events Tab ───────────────────────────────
+
+_renderAssignTab() {
+  const builtinSounds = [
+    { value: 'ping', label: 'Ping' }, { value: 'chime', label: 'Chime' },
+    { value: 'blip', label: 'Blip' }, { value: 'bell', label: 'Bell' },
+    { value: 'drop', label: 'Drop' }, { value: 'alert', label: 'Alert' },
+    { value: 'chord', label: 'Chord' }, { value: 'swoosh', label: 'Swoosh' },
+    { value: 'none', label: 'None' },
+  ];
+  const customs = (this.customSounds || []).map(s => ({
+    value: `custom:${s.name}`, label: s.name, url: s.url, builtin: !!s.builtin
+  }));
+  const fileBuiltins = customs.filter(s => s.builtin);
+  const userCustoms  = customs.filter(s => !s.builtin);
+
+  const events = [
+    { selectId: 'assign-msg-sound', event: 'message', notifSelect: 'notif-msg-sound' },
+    { selectId: 'assign-sent-sound', event: 'sent', notifSelect: 'notif-sent-sound' },
+    { selectId: 'assign-mention-sound', event: 'mention', notifSelect: 'notif-mention-sound' },
+    { selectId: 'assign-join-sound', event: 'join', notifSelect: 'notif-join-sound' },
+    { selectId: 'assign-leave-sound', event: 'leave', notifSelect: 'notif-leave-sound' },
+  ];
+
+  events.forEach(({ selectId, event, notifSelect }) => {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+
+    // Build options
+    sel.innerHTML = '';
+    const builtinGroup = document.createElement('optgroup');
+    builtinGroup.label = '🔊 Built-in';
+    builtinSounds.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.value;
+      opt.textContent = s.label;
+      builtinGroup.appendChild(opt);
+    });
+    sel.appendChild(builtinGroup);
+
+    if (fileBuiltins.length > 0) {
+      const fbGroup = document.createElement('optgroup');
+      fbGroup.label = '🎙️ Sounds';
+      fileBuiltins.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.value;
+        opt.textContent = s.label;
+        opt.dataset.url = s.url;
+        fbGroup.appendChild(opt);
+      });
+      sel.appendChild(fbGroup);
+    }
+
+    if (userCustoms.length > 0) {
+      const customGroup = document.createElement('optgroup');
+      customGroup.label = '🎵 Custom';
+      userCustoms.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.value;
+        opt.textContent = s.label;
+        opt.dataset.url = s.url;
+        customGroup.appendChild(opt);
+      });
+      sel.appendChild(customGroup);
+    }
+
+    // Sync with current notification setting
+    sel.value = this.notifications.sounds[event] || 'none';
+    // Replace the native dropdown with a custom one constrained to the modal,
+    // so long sound lists don't render a native popup that overflows the
+    // Haven window (#5418 follow-up). Idempotent — re-renders sync the label.
+    this._enhanceSelectAsCustom?.(sel);
+
+    // On change, update the main notification select + play preview
+    sel.addEventListener('change', () => {
+      const val = sel.value;
+      this.notifications.setSound(event, val);
+      // Sync the main settings select
+      const mainSel = document.getElementById(notifSelect);
+      if (mainSel) mainSel.value = val;
+      // Play preview
+      this.notifications.play(event);
+    });
+  });
+},
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// CUSTOM EMOJI MANAGEMENT
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+_setupEmojiManagement() {
+  this._croppedEmojiBlob = null;
+  this._cropState = null;
+  this._cropSourceFile = null;
+
+  // Open emoji management modal
+  const openEmojiBtn = document.getElementById('open-emoji-manager-btn');
+  if (openEmojiBtn) {
+    openEmojiBtn.addEventListener('click', () => {
+      document.getElementById('emoji-modal').style.display = 'flex';
+    });
+  }
+  // Close emoji modal
+  document.getElementById('close-emoji-modal-btn')?.addEventListener('click', () => {
+    document.getElementById('emoji-modal').style.display = 'none';
+  });
+  document.getElementById('emoji-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+  });
+
+  const uploadBtn = document.getElementById('emoji-upload-btn');
+  const fileInput = document.getElementById('emoji-file-input');
+  const nameInput = document.getElementById('emoji-name-input');
+  if (!uploadBtn || !fileInput) return;
+
+  // When a file is chosen, open the cropper (skip for GIFs)
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    this._croppedEmojiBlob = null;
+    this._cropSourceFile = file;
+    const previewRow = document.getElementById('emoji-crop-preview-row');
+    if (previewRow) previewRow.style.display = 'none';
+    if (file.type === 'image/gif') return; // GIFs skip cropper
+    this._openEmojiCropper(file);
+  });
+
+  uploadBtn.addEventListener('click', async () => {
+    const file = fileInput.files[0];
+    const name = nameInput ? nameInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase() : '';
+    if (!file) return this._showToast('Select an image file', 'error');
+    if (!name) return this._showToast('Enter an emoji name (lowercase, no spaces)', 'error');
+
+    // Use cropped blob for non-GIF uploads, otherwise raw file
+    const uploadBlob = (this._croppedEmojiBlob && file.type !== 'image/gif')
+      ? this._croppedEmojiBlob
+      : file;
+    const maxEmojiKb = parseInt(this.serverSettings?.max_emoji_kb) || 256;
+    if (uploadBlob.size > maxEmojiKb * 1024) return this._showToast(`Emoji file too large (max ${maxEmojiKb} KB)`, 'error');
+
+    const formData = new FormData();
+    formData.append('emoji', uploadBlob, file.name);
+    formData.append('name', name);
+
+    try {
+      this._showToast('Uploading emoji...', 'info');
+      const res = await fetch('/api/upload-emoji', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${this.token}` },
+        body: formData
+      });
+      if (!res.ok) {
+        let errMsg = `Upload failed (${res.status})`;
+        try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+        return this._showToast(errMsg, 'error');
+      }
+      this._showToast(`Emoji :${name}: uploaded!`, 'success');
+      fileInput.value = '';
+      if (nameInput) nameInput.value = '';
+      this._croppedEmojiBlob = null;
+      this._cropSourceFile = null;
+      this._cropState = null;
+      const previewRow = document.getElementById('emoji-crop-preview-row');
+      if (previewRow) previewRow.style.display = 'none';
+      this._loadCustomEmojis();
+    } catch {
+      this._showToast('Upload failed', 'error');
+    }
+  });
+
+  // Bulk emoji upload — select multiple files, auto-named from filenames
+  const bulkInput = document.getElementById('emoji-bulk-input');
+  if (bulkInput) {
+    bulkInput.addEventListener('change', async () => {
+      const files = Array.from(bulkInput.files);
+      if (!files.length) return;
+      const maxEmojiKb = parseInt(this.serverSettings?.max_emoji_kb) || 256;
+      const formData = new FormData();
+      let skipped = 0;
+      for (const file of files) {
+        if (file.size > maxEmojiKb * 1024) { skipped++; continue; }
+        formData.append('emojis', file, file.name);
+      }
+      if ([...formData.entries()].length === 0) {
+        bulkInput.value = '';
+        return this._showToast(`All files exceeded the ${maxEmojiKb} KB limit`, 'error');
+      }
+      try {
+        this._showToast(`Uploading ${files.length - skipped} emoji${files.length - skipped > 1 ? 's' : ''}...`, 'info');
+        const res = await fetch('/api/upload-emojis', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}` },
+          body: formData
+        });
+        if (!res.ok) {
+          let errMsg = `Upload failed (${res.status})`;
+          try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+          return this._showToast(errMsg, 'error');
+        }
+        const data = await res.json();
+        const count = data.uploaded?.length || 0;
+        const errCount = (data.errors?.length || 0) + skipped;
+        let msg = `${count} emoji${count !== 1 ? 's' : ''} uploaded`;
+        if (errCount) msg += ` (${errCount} skipped)`;
+        this._showToast(msg, count ? 'success' : 'error');
+        this._loadCustomEmojis();
+      } catch {
+        this._showToast('Bulk upload failed', 'error');
+      }
+      bulkInput.value = '';
+    });
+  }
+
+  this._setupEmojiCropperEvents();
+  this._loadCustomEmojis();
+},
+
+_setupEmojiCropperEvents() {
+  const canvas = document.getElementById('emoji-crop-canvas');
+  const zoomSlider = document.getElementById('emoji-crop-zoom');
+  if (!canvas || !zoomSlider) return;
+
+  // Zoom slider
+  zoomSlider.addEventListener('input', () => {
+    if (!this._cropState) return;
+    const s = this._cropState;
+    const prevScale = s.scale;
+    const newScale = s.minScale * (parseInt(zoomSlider.value) / 100);
+    // Zoom toward canvas center
+    s.ox = 128 - (128 - s.ox) * (newScale / prevScale);
+    s.oy = 128 - (128 - s.oy) * (newScale / prevScale);
+    s.scale = newScale;
+    this._clampEmojiCrop();
+    this._renderEmojiCropFrame();
+  });
+
+  // Mouse wheel → zoom
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (!this._cropState) return;
+    const delta = e.deltaY < 0 ? 15 : -15;
+    const newVal = Math.min(500, Math.max(100, parseInt(zoomSlider.value) + delta));
+    zoomSlider.value = newVal;
+    zoomSlider.dispatchEvent(new Event('input'));
+  }, { passive: false });
+
+  // Mouse drag
+  canvas.addEventListener('mousedown', (e) => {
+    if (!this._cropState) return;
+    this._cropState.dragging = true;
+    this._cropState.lastX = e.clientX;
+    this._cropState.lastY = e.clientY;
+    canvas.style.cursor = 'grabbing';
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!this._cropState?.dragging) return;
+    const s = this._cropState;
+    s.ox += e.clientX - s.lastX;
+    s.oy += e.clientY - s.lastY;
+    s.lastX = e.clientX;
+    s.lastY = e.clientY;
+    this._clampEmojiCrop();
+    this._renderEmojiCropFrame();
+  });
+  document.addEventListener('mouseup', () => {
+    if (this._cropState) this._cropState.dragging = false;
+    canvas.style.cursor = 'grab';
+  });
+
+  // Touch drag
+  canvas.addEventListener('touchstart', (e) => {
+    if (!this._cropState) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    this._cropState.dragging = true;
+    this._cropState.lastX = t.clientX;
+    this._cropState.lastY = t.clientY;
+  }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => {
+    if (!this._cropState?.dragging) return;
+    e.preventDefault();
+    const s = this._cropState;
+    const t = e.touches[0];
+    s.ox += t.clientX - s.lastX;
+    s.oy += t.clientY - s.lastY;
+    s.lastX = t.clientX;
+    s.lastY = t.clientY;
+    this._clampEmojiCrop();
+    this._renderEmojiCropFrame();
+  }, { passive: false });
+  canvas.addEventListener('touchend', () => {
+    if (this._cropState) this._cropState.dragging = false;
+  });
+
+  // Confirm crop
+  document.getElementById('emoji-crop-confirm-btn')?.addEventListener('click', () => {
+    if (!this._cropState) return;
+    const s = this._cropState;
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = 128;
+    outCanvas.height = 128;
+    const outCtx = outCanvas.getContext('2d');
+    const srcX = -s.ox / s.scale;
+    const srcY = -s.oy / s.scale;
+    const srcW = 256 / s.scale;
+    const srcH = 256 / s.scale;
+    outCtx.drawImage(s.img, srcX, srcY, srcW, srcH, 0, 0, 128, 128);
+    outCanvas.toBlob((blob) => {
+      this._croppedEmojiBlob = blob;
+      document.getElementById('emoji-crop-modal').style.display = 'none';
+      // Show preview row in the emoji modal
+      const thumb = document.getElementById('emoji-crop-thumb');
+      if (thumb) { thumb.src = outCanvas.toDataURL('image/png'); }
+      const previewRow = document.getElementById('emoji-crop-preview-row');
+      if (previewRow) previewRow.style.display = 'flex';
+    }, 'image/png');
+  });
+
+  // Cancel crop
+  document.getElementById('emoji-crop-cancel-btn')?.addEventListener('click', () => {
+    document.getElementById('emoji-crop-modal').style.display = 'none';
+    document.getElementById('emoji-file-input').value = '';
+    this._croppedEmojiBlob = null;
+    this._cropState = null;
+    this._cropSourceFile = null;
+  });
+
+  // Re-crop button in preview row
+  document.getElementById('emoji-recrop-btn')?.addEventListener('click', () => {
+    if (this._cropSourceFile) this._openEmojiCropper(this._cropSourceFile);
+  });
+},
+
+_openEmojiCropper(file) {
+  const modal = document.getElementById('emoji-crop-modal');
+  const canvas = document.getElementById('emoji-crop-canvas');
+  const zoomSlider = document.getElementById('emoji-crop-zoom');
+  if (!modal || !canvas || !zoomSlider) return;
+
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    const minScale = Math.max(256 / img.width, 256 / img.height);
+    const initScale = minScale;
+    this._cropState = {
+      img,
+      minScale,
+      scale: initScale,
+      ox: (256 - img.width * initScale) / 2,
+      oy: (256 - img.height * initScale) / 2,
+      dragging: false,
+      lastX: 0,
+      lastY: 0
+    };
+    zoomSlider.value = 100;
+    this._clampEmojiCrop();
+    this._renderEmojiCropFrame();
+    modal.style.display = 'flex';
+  };
+  img.src = url;
+},
+
+_clampEmojiCrop() {
+  const s = this._cropState;
+  if (!s) return;
+  const w = s.img.width * s.scale;
+  const h = s.img.height * s.scale;
+  s.ox = Math.min(0, Math.max(256 - w, s.ox));
+  s.oy = Math.min(0, Math.max(256 - h, s.oy));
+},
+
+_renderEmojiCropFrame() {
+  const s = this._cropState;
+  if (!s) return;
+  const canvas = document.getElementById('emoji-crop-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 256, 256);
+  ctx.drawImage(s.img, s.ox, s.oy, s.img.width * s.scale, s.img.height * s.scale);
+  // Corner guides to indicate crop boundary
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx.lineWidth = 2;
+  const g = 14;
+  [[0,0,1,1],[256,0,-1,1],[0,256,1,-1],[256,256,-1,-1]].forEach(([x,y,sx,sy]) => {
+    ctx.beginPath();
+    ctx.moveTo(x + sx, y); ctx.lineTo(x + sx * g, y);
+    ctx.moveTo(x, y + sy); ctx.lineTo(x, y + sy * g);
+    ctx.stroke();
+  });
+},
+
+async _loadCustomEmojis() {
+  try {
+    const res = await fetch('/api/emojis', {
+      headers: { 'Authorization': `Bearer ${this.token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    this.customEmojis = data.emojis || []; // [{name, url}]
+    this._renderEmojiList(this.customEmojis);
+  } catch { /* ignore */ }
+},
+
+_renderEmojiList(emojis) {
+  const list = document.getElementById('custom-emojis-list');
+  if (!list) return;
+
+  if (emojis.length === 0) {
+    list.innerHTML = '<p class="muted-text">No custom emojis uploaded</p>';
+    return;
+  }
+
+  list.innerHTML = emojis.map(e => `
+    <div class="custom-sound-item">
+      <img src="${this._escapeHtml(e.url)}" alt=":${this._escapeHtml(e.name)}:" class="custom-emoji-preview" style="width:24px;height:24px;vertical-align:middle;margin-right:6px;">
+      <span class="custom-sound-name">:${this._escapeHtml(e.name)}:</span>
+      <button class="btn-xs emoji-delete-btn" data-name="${this._escapeHtml(e.name)}" title="Delete">&#x1F5D1;</button>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.emoji-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = btn.dataset.name;
+      try {
+        const res = await fetch(`/api/emojis/${encodeURIComponent(name)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+        if (res.ok) {
+          this._showToast(`Emoji :${name}: deleted`, 'success');
+          this._loadCustomEmojis();
+        } else {
+          this._showToast('Delete failed', 'error');
+        }
+      } catch {
+        this._showToast('Delete failed', 'error');
+      }
+    });
+  });
+},
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// STICKERS (admin upload, anyone can send)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+async _loadStickers() {
+  try {
+    const res = await fetch('/api/stickers', {
+      headers: { 'Authorization': `Bearer ${this.token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    this.stickers = data.stickers || [];
+    this._renderStickerList(this.stickers);
+  } catch { /* ignore */ }
+},
+
+_renderStickerList(stickers) {
+  const list = document.getElementById('stickers-list');
+  if (!list) return;
+  if (!stickers || stickers.length === 0) {
+    list.innerHTML = '<p class="muted-text" data-i18n="modals.sticker_mgmt.no_stickers">No stickers uploaded</p>';
+    return;
+  }
+  // Group by pack for display
+  const packs = {};
+  stickers.forEach(s => {
+    const p = s.pack_name || 'General';
+    (packs[p] = packs[p] || []).push(s);
+  });
+  list.innerHTML = Object.keys(packs).sort().map(pack => `
+    <div class="sticker-pack-group" style="margin-top:8px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text-secondary)">${this._escapeHtml(pack)}</div>
+      ${packs[pack].map(s => `
+        <div class="custom-sound-item">
+          <img src="${this._escapeHtml(s.url)}" alt=":${this._escapeHtml(s.name)}:" style="width:48px;height:48px;vertical-align:middle;margin-right:8px;object-fit:contain;border-radius:4px;background:var(--bg-secondary)">
+          <span class="custom-sound-name">:${this._escapeHtml(s.name)}:</span>
+          <button class="btn-xs sticker-delete-btn" data-name="${this._escapeHtml(s.name)}" title="Delete">&#x1F5D1;</button>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.sticker-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = btn.dataset.name;
+      try {
+        const res = await fetch(`/api/stickers/${encodeURIComponent(name)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${this.token}` }
+        });
+        if (res.ok) {
+          this._showToast(`Sticker :${name}: deleted`, 'success');
+          this._loadStickers();
+        } else {
+          this._showToast('Delete failed', 'error');
+        }
+      } catch {
+        this._showToast('Delete failed', 'error');
+      }
+    });
+  });
+},
+
+_setupStickerManagement() {
+  const openBtn = document.getElementById('open-sticker-manager-btn');
+  const modal = document.getElementById('sticker-modal');
+  const closeBtn = document.getElementById('close-sticker-modal-btn');
+  const uploadBtn = document.getElementById('sticker-upload-btn');
+  const bulkInput = document.getElementById('sticker-bulk-input');
+  const fileInput = document.getElementById('sticker-file-input');
+  const nameInput = document.getElementById('sticker-name-input');
+  const packInput = document.getElementById('sticker-pack-input');
+
+  if (openBtn && modal) {
+    openBtn.addEventListener('click', () => {
+      modal.style.display = 'flex';
+      this._loadStickers();
+    });
+  }
+  if (closeBtn && modal) {
+    closeBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+  }
+
+  if (uploadBtn && fileInput) {
+    uploadBtn.addEventListener('click', async () => {
+      const file = fileInput.files[0];
+      if (!file) return this._showToast('Choose a file first', 'error');
+      const maxKb = parseInt(this.serverSettings?.max_sticker_kb) || 1024;
+      if (file.size > maxKb * 1024) return this._showToast(`File exceeds ${maxKb} KB limit`, 'error');
+
+      const formData = new FormData();
+      formData.append('sticker', file, file.name);
+      const name = (nameInput?.value || '').trim();
+      const pack = (packInput?.value || '').trim();
+      if (name) formData.append('name', name);
+      if (pack) formData.append('pack_name', pack);
+
+      try {
+        const res = await fetch('/api/upload-sticker', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}` },
+          body: formData
+        });
+        if (!res.ok) {
+          let errMsg = `Upload failed (${res.status})`;
+          try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+          return this._showToast(errMsg, 'error');
+        }
+        const data = await res.json();
+        this._showToast(`Sticker :${data.name}: uploaded`, 'success');
+        if (nameInput) nameInput.value = '';
+        fileInput.value = '';
+        this._loadStickers();
+      } catch {
+        this._showToast('Upload failed', 'error');
+      }
+    });
+  }
+
+  if (bulkInput) {
+    bulkInput.addEventListener('change', async () => {
+      const files = Array.from(bulkInput.files || []);
+      if (!files.length) return;
+
+      const maxKb = parseInt(this.serverSettings?.max_sticker_kb) || 1024;
+      const formData = new FormData();
+      let skipped = 0;
+      for (const file of files) {
+        if (file.size > maxKb * 1024) {
+          skipped++;
+          continue;
+        }
+        formData.append('stickers', file, file.name);
+      }
+      if ([...formData.entries()].length === 0) {
+        bulkInput.value = '';
+        return this._showToast(`All files exceeded the ${maxKb} KB limit`, 'error');
+      }
+
+      const pack = (packInput?.value || '').trim();
+      if (pack) formData.append('pack_name', pack);
+
+      try {
+        this._showToast(`Uploading ${files.length - skipped} sticker${files.length - skipped !== 1 ? 's' : ''}...`, 'info');
+        const res = await fetch('/api/upload-stickers', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}` },
+          body: formData
+        });
+        if (!res.ok) {
+          let errMsg = `Upload failed (${res.status})`;
+          try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+          return this._showToast(errMsg, 'error');
+        }
+
+        const data = await res.json();
+        const count = data.uploaded?.length || 0;
+        const errCount = (data.errors?.length || 0) + skipped;
+        let msg = `${count} sticker${count !== 1 ? 's' : ''} uploaded`;
+        if (errCount) msg += ` (${errCount} skipped)`;
+        this._showToast(msg, count ? 'success' : 'error');
+        this._loadStickers();
+      } catch {
+        this._showToast('Bulk upload failed', 'error');
+      }
+
+      bulkInput.value = '';
+    });
+  }
+
+  this._loadStickers();
+},
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// WEBHOOKS / BOT MANAGEMENT
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+_setupWebhookManagement() {
+  // Open bot management modal
+  const openBtn = document.getElementById('open-bot-editor-btn');
+  if (openBtn) {
+    openBtn.addEventListener('click', () => this._openBotModal());
+  }
+  // Close bot modal
+  document.getElementById('close-bot-modal-btn')?.addEventListener('click', () => {
+    document.getElementById('bot-modal').style.display = 'none';
+  });
+  document.getElementById('bot-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+  });
+  // Create new bot
+  document.getElementById('create-bot-btn')?.addEventListener('click', () => {
+    this._createNewBot();
+  });
+},
+
+_openBotModal() {
+  document.getElementById('bot-modal').style.display = 'flex';
+  document.getElementById('bot-detail-panel').innerHTML = `<p class="muted-text" style="padding:20px;text-align:center">${t('modals.bot_mgmt.select_or_create')}</p>`;
+  // Request all webhooks for the sidebar
+  this.socket.emit('get-webhooks');
+},
+
+async _createNewBot() {
+  const name = await this._showPromptModal(t('modals.bot_mgmt.create_title'), t('modals.bot_mgmt.create_name_prompt'));
+  if (!name || !name.trim()) return;
+  // Pick first non-DM channel as default
+  const firstChannel = this.channels.find(c => !c.is_dm);
+  if (!firstChannel) return this._showToast(t('modals.bot_mgmt.no_channels'), 'error');
+  this.socket.emit('create-webhook', { name: name.trim(), channel_id: firstChannel.id, avatar_url: null });
+},
+
+_renderBotSidebar(webhooks) {
+  const sidebar = document.getElementById('bot-list-sidebar');
+  if (!sidebar) return;
+  this._botWebhooks = webhooks; // cache for detail panel
+  sidebar.innerHTML = webhooks.map(wh => {
+    const avatarHtml = wh.avatar_url
+      ? `<img src="${this._escapeHtml(wh.avatar_url)}" style="width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+      : `<span style="width:20px;height:20px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;color:#fff">🤖</span>`;
+    const activeClass = this._selectedBotId === wh.id ? ' active' : '';
+    return `<div class="role-sidebar-item${activeClass}" data-bot-id="${wh.id}">${avatarHtml}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this._escapeHtml(wh.name)}</span></div>`;
+  }).join('');
+
+  sidebar.querySelectorAll('.role-sidebar-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const botId = parseInt(item.dataset.botId);
+      this._selectedBotId = botId;
+      // Highlight active
+      sidebar.querySelectorAll('.role-sidebar-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+      this._showBotDetail(botId);
+    });
+  });
+},
+
+_showBotDetail(botId) {
+  const wh = (this._botWebhooks || []).find(w => w.id === botId);
+  if (!wh) return;
+  const panel = document.getElementById('bot-detail-panel');
+  const baseUrl = window.location.origin;
+  const webhookUrl = `${baseUrl}/api/webhooks/${wh.token}`;
+  const maskedToken = wh.token.slice(0, 12) + '••••••••••••';
+  const channelOptions = this._getBotChannelOptions(wh.channel_id);
+
+  panel.innerHTML = `
+    <div class="role-detail-form">
+      <label class="settings-label">${t('modals.bot_mgmt.avatar_label')}</label>
+      <div class="bot-avatar-row" style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <div class="bot-avatar-preview" style="width:48px;height:48px;border-radius:50%;overflow:hidden;border:2px solid var(--border);background:var(--bg-tertiary);flex-shrink:0;display:flex;align-items:center;justify-content:center">
+          ${wh.avatar_url ? `<img src="${this._escapeHtml(wh.avatar_url)}" style="width:100%;height:100%;object-fit:cover">` : '<span style="font-size:24px">🤖</span>'}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <button class="btn-xs btn-accent" id="bot-upload-avatar-btn">📷 ${t('modals.bot_mgmt.upload_avatar_btn')}</button>
+          <button class="btn-xs" id="bot-remove-avatar-btn" ${wh.avatar_url ? '' : 'disabled'}>${t('modals.bot_mgmt.remove_avatar_btn')}</button>
+        </div>
+        <input type="file" id="bot-avatar-file-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none">
+      </div>
+
+      <label class="settings-label">${t('modals.bot_mgmt.name_label')}</label>
+      <input type="text" id="bot-detail-name" value="${this._escapeHtml(wh.name)}" maxlength="32" class="settings-text-input" style="width:100%;margin-bottom:8px">
+
+      <label class="settings-label">${t('modals.bot_mgmt.channel_label')}</label>
+      <select id="bot-detail-channel" class="settings-select" style="width:100%;margin-bottom:8px">${channelOptions}</select>
+
+      <label class="settings-label">${t('modals.bot_mgmt.status_label')}</label>
+      <label class="toggle-row" style="margin-bottom:8px">
+        <span>${wh.is_active ? `🟢 ${t('modals.bot_mgmt.status_active')}` : `🔴 ${t('modals.bot_mgmt.status_disabled')}`}</span>
+        <button class="btn-xs" id="bot-detail-toggle">${wh.is_active ? t('modals.bot_mgmt.disable_btn') : t('modals.bot_mgmt.enable_btn')}</button>
+      </label>
+
+      <label class="settings-label">${t('modals.bot_mgmt.webhook_url_label')}</label>
+      <div style="display:flex;gap:4px;align-items:center;margin-bottom:8px">
+        <code style="flex:1;font-size:11px;padding:6px 8px;background:var(--bg-input);border-radius:4px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this._escapeHtml(webhookUrl)}</code>
+        <button class="btn-xs" id="bot-detail-copy-url" title="${t('modals.bot_mgmt.copy_url_title')}">📋</button>
+      </div>
+
+      <label class="settings-label">${t('modals.bot_mgmt.token_label')}</label>
+      <div style="font-size:11px;font-family:monospace;padding:4px 8px;background:var(--bg-input);border-radius:4px;color:var(--text-muted);margin-bottom:12px">${maskedToken}</div>
+
+      <label class="settings-label">📡 Callback URL <span style="font-size:10px;color:var(--text-muted)">(optional — Haven will POST messages to this URL)</span></label>
+      <input type="url" id="bot-detail-callback-url" value="${this._escapeHtml(wh.callback_url || '')}" placeholder="https://mybot.example.com/haven-events" class="settings-text-input" style="width:100%;margin-bottom:8px">
+
+      <label class="settings-label">🔑 Callback Secret <span style="font-size:10px;color:var(--text-muted)">(optional — used to sign payloads via X-Haven-Signature)</span></label>
+      <input type="text" id="bot-detail-callback-secret" value="${this._escapeHtml(wh.callback_secret || '')}" placeholder="my-secret-key" class="settings-text-input" style="width:100%;margin-bottom:12px">
+
+      <label class="settings-label">🛡️ Moderation <span style="font-size:10px;color:var(--text-muted)">(admin only — let this bot kick / ban / mute users via REST API)</span></label>
+      <label class="toggle-row" style="margin-bottom:12px">
+        <input type="checkbox" id="bot-detail-can-moderate" ${wh.can_moderate ? 'checked' : ''} ${this.user && this.user.isAdmin ? '' : 'disabled'}>
+        <span>Allow this bot to perform moderation actions</span>
+      </label>
+
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn-sm btn-accent" id="bot-detail-save" style="flex:1">💾 ${t('modals.bot_mgmt.save_btn')}</button>
+        <button class="btn-sm btn-danger" id="bot-detail-delete">&#x1F5D1; ${t('modals.bot_mgmt.delete_btn')}</button>
+      </div>
+    </div>
+  `;
+
+  // Wire up handlers
+  panel.querySelector('#bot-upload-avatar-btn').addEventListener('click', () => {
+    panel.querySelector('#bot-avatar-file-input').click();
+  });
+  panel.querySelector('#bot-avatar-file-input').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    this._uploadBotAvatar(botId, file);
+  });
+  panel.querySelector('#bot-remove-avatar-btn').addEventListener('click', () => {
+    this.socket.emit('update-webhook', { id: botId, avatar_url: '' });
+  });
+  panel.querySelector('#bot-detail-save').addEventListener('click', () => {
+    const name = panel.querySelector('#bot-detail-name').value.trim();
+    const channelId = parseInt(panel.querySelector('#bot-detail-channel').value);
+    const callbackUrl = panel.querySelector('#bot-detail-callback-url').value.trim();
+    const callbackSecret = panel.querySelector('#bot-detail-callback-secret').value.trim();
+    if (!name) return this._showToast('Name is required', 'error');
+    const payload = { id: botId, name, channel_id: channelId, callback_url: callbackUrl, callback_secret: callbackSecret };
+    const modBox = panel.querySelector('#bot-detail-can-moderate');
+    if (modBox && !modBox.disabled) payload.can_moderate = modBox.checked ? 1 : 0;
+    this.socket.emit('update-webhook', payload);
+  });
+  panel.querySelector('#bot-detail-toggle').addEventListener('click', () => {
+    this.socket.emit('toggle-webhook', { id: botId });
+  });
+  panel.querySelector('#bot-detail-copy-url').addEventListener('click', () => {
+    const markCopied = () => {
+      panel.querySelector('#bot-detail-copy-url').textContent = '✅';
+      setTimeout(() => {
+        const btn = panel.querySelector('#bot-detail-copy-url');
+        if (btn) btn.textContent = '📋';
+      }, 1500);
+    };
+    navigator.clipboard.writeText(webhookUrl).then(markCopied).catch(() => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = webhookUrl;
+        ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        markCopied();
+      } catch { /* could not copy */ }
+    });
+  });
+  panel.querySelector('#bot-detail-delete').addEventListener('click', () => {
+    if (confirm(`Delete bot "${wh.name}"? This cannot be undone.`)) {
+      this._selectedBotId = null;
+      this.socket.emit('delete-webhook', { id: botId });
+    }
+  });
+},
+
+/** Build channel <option> list ordered like the sidebar (parents first, sub-channels indented) */
+_getBotChannelOptions(selectedId) {
+  const regular = this.channels.filter(c => !c.is_dm);
+  const parents = regular.filter(c => !c.parent_channel_id);
+  const subMap = {};
+  regular.filter(c => c.parent_channel_id).forEach(c => {
+    if (!subMap[c.parent_channel_id]) subMap[c.parent_channel_id] = [];
+    subMap[c.parent_channel_id].push(c);
+  });
+  let html = '';
+  for (const p of parents) {
+    const sel = p.id === selectedId ? ' selected' : '';
+    html += `<option value="${p.id}"${sel}># ${this._escapeHtml(p.name)}</option>`;
+    const subs = subMap[p.id] || [];
+    for (const s of subs) {
+      const sSel = s.id === selectedId ? ' selected' : '';
+      html += `<option value="${s.id}"${sSel}>&nbsp;&nbsp;&nbsp;&nbsp;↳ ${this._escapeHtml(s.name)}</option>`;
+    }
+  }
+  return html;
+},
+
+async _uploadBotAvatar(botId, file) {
+  const form = new FormData();
+  form.append('avatar', file);
+  form.append('webhookId', botId);
+  try {
+    const resp = await fetch('/api/upload-webhook-avatar', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${this.token}` },
+      body: form
+    });
+    const json = await resp.json();
+    if (json.url) {
+      this.socket.emit('update-webhook', { id: botId, avatar_url: json.url });
+      this._showToast('Bot avatar updated', 'success');
+    } else {
+      this._showToast(json.error || 'Upload failed', 'error');
+    }
+  } catch (err) {
+    this._showToast('Upload failed', 'error');
+  }
+},
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// LAYOUT DENSITY
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+_setupDensityPicker() {
+  const picker = document.getElementById('density-picker');
+  if (!picker) return;
+
+  // Restore saved density
+  const saved = localStorage.getItem('haven-density') || 'cozy';
+  document.documentElement.dataset.density = saved;
+  picker.querySelectorAll('.density-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.density === saved);
+  });
+
+  picker.addEventListener('click', (e) => {
+    const btn = e.target.closest('.density-btn');
+    if (!btn) return;
+    const density = btn.dataset.density;
+    document.documentElement.dataset.density = density;
+    localStorage.setItem('haven-density', density);
+    picker.querySelectorAll('.density-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+},
+
+// ── Font Size Picker ──
+
+_setupFontSizePicker() {
+  const picker = document.getElementById('font-size-picker');
+  if (!picker) return;
+
+  const saved = localStorage.getItem('haven-fontsize') || 'normal';
+  document.documentElement.dataset.fontsize = saved;
+  picker.querySelectorAll('[data-fontsize]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.fontsize === saved);
+  });
+
+  picker.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-fontsize]');
+    if (!btn) return;
+    const size = btn.dataset.fontsize;
+    document.documentElement.dataset.fontsize = size;
+    localStorage.setItem('haven-fontsize', size);
+    picker.querySelectorAll('[data-fontsize]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+},
+
+// ── Emoji Reaction Size Picker ──
+
+_setupEmojiSizePicker() {
+  const picker = document.getElementById('emoji-size-picker');
+  if (!picker) return;
+
+  const saved = localStorage.getItem('haven-emojisize') || 'normal';
+  document.documentElement.dataset.emojisize = saved;
+  picker.querySelectorAll('[data-emojisize]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.emojisize === saved);
+  });
+
+  picker.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-emojisize]');
+    if (!btn) return;
+    const size = btn.dataset.emojisize;
+    document.documentElement.dataset.emojisize = size;
+    localStorage.setItem('haven-emojisize', size);
+    picker.querySelectorAll('[data-emojisize]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+},
+
+// ── Debug Section ──
+
+_setupDebugSection() {
+  const cb = document.getElementById('pref-debug-local-talk-indicator');
+  if (!cb) return;
+  try { cb.checked = localStorage.getItem('debug_local_talk_indicator') === '1'; } catch {}
+  cb.addEventListener('change', () => {
+    try {
+      if (cb.checked) localStorage.setItem('debug_local_talk_indicator', '1');
+      else localStorage.removeItem('debug_local_talk_indicator');
+    } catch {}
+  });
+
+  // #5379 — opt-in toggle to re-apply voice processing (echoCancellation /
+  // noiseSuppression / autoGainControl) to getDisplayMedia audio. Default
+  // off as of 3.17.3 because those filters hollow out music and game audio
+  // for listeners. Users sharing tutorial narration or meeting audio can
+  // flip this back on. Mic capture is a separate stream and always gets
+  // voice processing regardless of this setting.
+  const sspCb = document.getElementById('pref-debug-screen-share-voice-proc');
+  if (sspCb) {
+    try { sspCb.checked = localStorage.getItem('screen_share_voice_processing') === '1'; } catch {}
+    sspCb.addEventListener('change', () => {
+      try {
+        if (sspCb.checked) localStorage.setItem('screen_share_voice_processing', '1');
+        else localStorage.removeItem('screen_share_voice_processing');
+      } catch {}
+    });
+  }
+
+  // #5426 — screen-share audio now plays straight through the <audio> element
+  // by default (NetEq stays in charge, so it stays in sync over a TURN relay).
+  // This opt-in toggle instead routes it through the Web Audio mixer, which
+  // unlocks the >100% per-stream volume boost but can stutter / desync over a
+  // relay — the same createMediaStreamSource-vs-jitter-buffer fight as before,
+  // just no longer the default.
+  const sadCb = document.getElementById('pref-debug-screen-audio-direct');
+  if (sadCb) {
+    try { sadCb.checked = localStorage.getItem('screen_audio_webaudio') === '1'; } catch {}
+    sadCb.addEventListener('change', () => {
+      try {
+        if (sadCb.checked) localStorage.setItem('screen_audio_webaudio', '1');
+        else localStorage.removeItem('screen_audio_webaudio');
+      } catch {}
+      // Apply immediately to any screen audio that's already playing.
+      if (this.voice && typeof this.voice.reapplyScreenAudioRouting === 'function') {
+        this.voice.reapplyScreenAudioRouting();
+      }
+    });
+  }
+
+  // #5380 — always join voice muted
+  const moCb = document.getElementById('pref-voice-mute-on-join');
+  if (moCb) {
+    try { moCb.checked = localStorage.getItem('haven_mute_on_join') === '1'; } catch {}
+    moCb.addEventListener('change', () => {
+      try {
+        if (moCb.checked) localStorage.setItem('haven_mute_on_join', '1');
+        else localStorage.removeItem('haven_mute_on_join');
+      } catch {}
+    });
+  }
+
+  // #5380 — listener-only (skip mic) voice mode
+  const loCb = document.getElementById('pref-voice-listener-only');
+  if (loCb) {
+    try { loCb.checked = localStorage.getItem('haven_listener_only') === '1'; } catch {}
+    loCb.addEventListener('change', () => {
+      try {
+        if (loCb.checked) localStorage.setItem('haven_listener_only', '1');
+        else localStorage.removeItem('haven_listener_only');
+      } catch {}
+    });
+  }
+},
+
+// ── Image Display Mode Picker ──
+
+_setupImageModePicker() {
+  const picker = document.getElementById('image-mode-picker');
+  if (!picker) return;
+
+  // Restore saved image mode (default: thumbnail)
+  const saved = localStorage.getItem('haven-image-mode') || 'thumbnail';
+  this._applyImageMode(saved);
+  picker.querySelectorAll('[data-image-mode]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.imageMode === saved);
+  });
+
+  picker.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-image-mode]');
+    if (!btn) return;
+    const mode = btn.dataset.imageMode;
+    this._applyImageMode(mode);
+    localStorage.setItem('haven-image-mode', mode);
+    picker.querySelectorAll('[data-image-mode]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+},
+
+_applyImageMode(mode) {
+  document.body.classList.toggle('image-mode-full', mode === 'full');
+},
+
+// ── Embed / Link Preview Size Picker ──
+
+_setupEmbedSizePicker() {
+  const picker = document.getElementById('embed-size-picker');
+  if (!picker) return;
+  this._applyEmbedSize(this._embedSize());
+  picker.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-embed-size]');
+    if (btn) this._applyEmbedSize(btn.dataset.embedSize);
+  });
+},
+
+// Embed size is the single source of truth shared by the Settings picker and
+// the per-embed ⤢ toggle (see app-messages.js). Legacy values are migrated.
+_normalizeEmbedSize(mode) {
+  mode = ({ normal: 'medium', large: 'full' })[mode] || mode;
+  return ['full', 'medium', 'small', 'off'].includes(mode) ? mode : 'medium';
+},
+
+_embedSize() {
+  return this._normalizeEmbedSize(localStorage.getItem('haven-embed-size'));
+},
+
+_applyEmbedSize(mode) {
+  mode = this._normalizeEmbedSize(mode);
+  localStorage.setItem('haven-embed-size', mode);
+  document.body.classList.remove('embed-size-off', 'embed-size-small', 'embed-size-medium', 'embed-size-full');
+  document.body.classList.add(`embed-size-${mode}`);
+  const label = `⤢ ${mode.charAt(0).toUpperCase() + mode.slice(1)}`;
+  document.querySelectorAll('.lp-size').forEach(b => { b.textContent = label; });
+  const picker = document.getElementById('embed-size-picker');
+  if (picker) picker.querySelectorAll('[data-embed-size]').forEach(b => b.classList.toggle('active', b.dataset.embedSize === mode));
+},
+
+// ── Role Display Picker ──
+
+_setupRoleDisplayPicker() {
+  const picker = document.getElementById('role-display-picker');
+  if (!picker) return;
+
+  const saved = localStorage.getItem('haven-role-display') || 'colored-name';
+  document.documentElement.dataset.roleDisplay = saved;
+  picker.querySelectorAll('[data-roledisplay]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.roledisplay === saved);
+  });
+
+  picker.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-roledisplay]');
+    if (!btn) return;
+    const mode = btn.dataset.roledisplay;
+    document.documentElement.dataset.roleDisplay = mode;
+    localStorage.setItem('haven-role-display', mode);
+    picker.querySelectorAll('[data-roledisplay]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Re-render member list to reflect the change
+    if (this._updateUsers) this._updateUsers();
+  });
+},
+
+// ── Toolbar Icon Style Picker ──
+
+_setupToolbarIconPicker() {
+  const picker = document.getElementById('toolbar-icon-picker');
+  const slotsInput = document.getElementById('toolbar-visible-slots');
+  const slotsValue = document.getElementById('toolbar-visible-slots-value');
+  const orderList = document.getElementById('toolbar-order-list');
+  const resetBtn = document.getElementById('toolbar-order-reset-btn');
+  if (!picker) return;
+
+  const defaultOrder = ['react', 'reply', 'quote', 'thread', 'pin', 'archive', 'edit', 'delete'];
+  const actionLabels = {
+    react: 'React',
+    reply: 'Reply',
+    quote: 'Quote',
+    thread: 'Thread',
+    pin: 'Pin / Unpin',
+    archive: 'Protect / Unprotect',
+    edit: 'Edit',
+    delete: 'Delete'
+  };
+
+  const normalizeOrder = (value) => {
+    const arr = Array.isArray(value) ? value : [];
+    const clean = [];
+    arr.forEach((k) => {
+      if (defaultOrder.includes(k) && !clean.includes(k)) clean.push(k);
+    });
+    defaultOrder.forEach((k) => {
+      if (!clean.includes(k)) clean.push(k);
+    });
+    return clean;
+  };
+
+  const refreshCurrentMessages = () => {
+    if (this.currentChannel && this.socket?.connected) {
+      this.socket.emit('get-messages', { code: this.currentChannel });
+    }
+  };
+
+  const savedMode = localStorage.getItem('haven-toolbar-icons') || 'mono';
+  const normalizedMode = savedMode === 'color' ? 'emoji' : savedMode;
+  document.documentElement.dataset.toolbaricons = normalizedMode;
+  picker.querySelectorAll('[data-toolbaricons]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.toolbaricons === normalizedMode);
+  });
+
+  let savedSlots = parseInt(localStorage.getItem('haven-toolbar-visible-slots') || '3', 10);
+  if (!Number.isFinite(savedSlots)) savedSlots = 3;
+  savedSlots = Math.max(1, Math.min(7, savedSlots));
+  localStorage.setItem('haven-toolbar-visible-slots', String(savedSlots));
+  if (slotsInput) slotsInput.value = String(savedSlots);
+  if (slotsValue) slotsValue.textContent = String(savedSlots);
+
+  let savedOrder;
+  try {
+    savedOrder = JSON.parse(localStorage.getItem('haven-toolbar-order') || '[]');
+  } catch {
+    savedOrder = [];
+  }
+  let currentOrder = normalizeOrder(savedOrder);
+  localStorage.setItem('haven-toolbar-order', JSON.stringify(currentOrder));
+
+  const renderOrderList = () => {
+    if (!orderList) return;
+    orderList.innerHTML = '';
+    currentOrder.forEach((key, index) => {
+      const row = document.createElement('div');
+      row.className = 'toolbar-order-item';
+      row.innerHTML = `
+        <span class="toolbar-order-item-label">${actionLabels[key] || key}</span>
+        <div class="toolbar-order-item-controls">
+          <button type="button" class="toolbar-order-move" data-dir="up" data-key="${key}" ${index === 0 ? 'disabled' : ''} title="Move up">▲</button>
+          <button type="button" class="toolbar-order-move" data-dir="down" data-key="${key}" ${index === currentOrder.length - 1 ? 'disabled' : ''} title="Move down">▼</button>
+        </div>
+      `;
+      orderList.appendChild(row);
+    });
+  };
+
+  renderOrderList();
+
+  picker.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-toolbaricons]');
+    if (!btn) return;
+    const mode = btn.dataset.toolbaricons;
+    document.documentElement.dataset.toolbaricons = mode;
+    localStorage.setItem('haven-toolbar-icons', mode);
+    picker.querySelectorAll('[data-toolbaricons]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    refreshCurrentMessages();
+  });
+
+  if (slotsInput) {
+    slotsInput.addEventListener('input', () => {
+      if (slotsValue) slotsValue.textContent = slotsInput.value;
+    });
+    slotsInput.addEventListener('change', () => {
+      const value = Math.max(1, Math.min(7, parseInt(slotsInput.value || '3', 10) || 3));
+      localStorage.setItem('haven-toolbar-visible-slots', String(value));
+      if (slotsValue) slotsValue.textContent = String(value);
+      refreshCurrentMessages();
+    });
+  }
+
+  if (orderList) {
+    orderList.addEventListener('click', (e) => {
+      const btn = e.target.closest('.toolbar-order-move');
+      if (!btn) return;
+      const key = btn.dataset.key;
+      const dir = btn.dataset.dir;
+      const idx = currentOrder.indexOf(key);
+      if (idx < 0) return;
+      const swapWith = dir === 'up' ? idx - 1 : idx + 1;
+      if (swapWith < 0 || swapWith >= currentOrder.length) return;
+      const next = currentOrder.slice();
+      [next[idx], next[swapWith]] = [next[swapWith], next[idx]];
+      currentOrder = next;
+      localStorage.setItem('haven-toolbar-order', JSON.stringify(currentOrder));
+      renderOrderList();
+      refreshCurrentMessages();
+    });
+  }
+
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      currentOrder = defaultOrder.slice();
+      localStorage.setItem('haven-toolbar-order', JSON.stringify(currentOrder));
+      renderOrderList();
+      refreshCurrentMessages();
+    });
+  }
+},
+
+// ── Image Lightbox ──
+
+_setupLightbox() {
+  const lb = document.getElementById('image-lightbox');
+  if (!lb) return;
+  // Only close when clicking the backdrop (not the image itself)
+  lb.addEventListener('click', (e) => {
+    if (e.target === lb) this._closeLightbox();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (lb.style.display === 'none') return;
+    if (e.key === 'Escape') this._closeLightbox();
+    if (e.key === 'ArrowLeft') this._lightboxNavigate(-1);
+    if (e.key === 'ArrowRight') this._lightboxNavigate(1);
+  });
+
+  // Nav button clicks
+  const prevBtn = document.getElementById('lightbox-prev');
+  const nextBtn = document.getElementById('lightbox-next');
+  if (prevBtn) prevBtn.addEventListener('click', (e) => { e.stopPropagation(); this._lightboxNavigate(-1); });
+  if (nextBtn) nextBtn.addEventListener('click', (e) => { e.stopPropagation(); this._lightboxNavigate(1); });
+
+  // Custom context menu for lightbox image (Save, Copy, Open)
+  const lbImg = document.getElementById('lightbox-img');
+  if (lbImg) {
+    lbImg.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._showImageContextMenu(e, lbImg.src);
+    });
+  }
+},
+
+_getLightboxImages() {
+  // Use whichever container opened the lightbox (main feed, thread panel, DM PiP)
+  const container = this._lightboxContainer || document.getElementById('messages');
+  if (!container) return [];
+  return Array.from(container.querySelectorAll('.chat-image')).map(img => img.src);
+},
+
+_lightboxNavigate(dir) {
+  const imgs = this._getLightboxImages();
+  const lbImg = document.getElementById('lightbox-img');
+  if (!lbImg || imgs.length < 2) return;
+  const curIdx = imgs.indexOf(lbImg.src);
+  if (curIdx < 0) return;
+  const newIdx = curIdx + dir;
+  if (newIdx < 0 || newIdx >= imgs.length) return;
+  lbImg.src = imgs[newIdx];
+  this._updateLightboxNav();
+},
+
+_updateLightboxNav() {
+  const imgs = this._getLightboxImages();
+  const lbImg = document.getElementById('lightbox-img');
+  const prevBtn = document.getElementById('lightbox-prev');
+  const nextBtn = document.getElementById('lightbox-next');
+  if (!lbImg || !prevBtn || !nextBtn) return;
+  const curIdx = imgs.indexOf(lbImg.src);
+  prevBtn.disabled = curIdx <= 0;
+  nextBtn.disabled = curIdx < 0 || curIdx >= imgs.length - 1;
+  // Hide nav if only one image
+  const showNav = imgs.length > 1;
+  prevBtn.style.display = showNav ? '' : 'none';
+  nextBtn.style.display = showNav ? '' : 'none';
+},
+
+_openLightbox(src) {
+  const lb = document.getElementById('image-lightbox');
+  const img = document.getElementById('lightbox-img');
+  if (!lb || !img) return;
+  img.src = src;
+  lb.style.display = 'flex';
+  this._updateLightboxNav();
+},
+
+_closeLightbox() {
+  const lb = document.getElementById('image-lightbox');
+  if (lb) { lb.style.display = 'none'; }
+  const img = document.getElementById('lightbox-img');
+  if (img) { img.src = ''; }
+  this._hideImageContextMenu();
+},
+
+/* ── Modal Expand / Maximize ────────────────────────── */
+
+_setupModalExpand() {
+  // Global guard: track mousedown origin so overlay click-to-close doesn't fire
+  // when a resize drag ends outside the modal (cursor lands on overlay)
+  let _overlayMouseDownTarget = null;
+  document.addEventListener('mousedown', (e) => { _overlayMouseDownTarget = e.target; }, true);
+  document.addEventListener('click', (e) => {
+    // If click landed on a modal-overlay but mousedown started inside the modal, suppress close
+    if (e.target.classList && e.target.classList.contains('modal-overlay') &&
+        _overlayMouseDownTarget && _overlayMouseDownTarget !== e.target) {
+      e.stopImmediatePropagation();
+    }
+  }, true); // capturing phase — fires before individual handlers
+
+  // Auto-inject expand/maximize + close buttons into every modal.
+  // Buttons live in an absolutely positioned .modal-controls group at the
+  // top-right so they work for ALL modal layouts (back buttons, wrapper
+  // divs, settings headers, etc) without depending on h3 internal flex.
+  const _injectModalControls = () => {
+    document.querySelectorAll('.modal').forEach(modal => {
+      // Skip promo/centered popups and the media gallery (which has its own
+      // header close button) — they're not regular modals (#5352)
+      if (modal.classList.contains('android-beta-promo') ||
+          modal.classList.contains('desktop-promo') ||
+          modal.classList.contains('donors-modal-box') ||
+          modal.classList.contains('media-gallery-modal')) return;
+      // Idempotent — skip already-injected
+      if (modal.dataset.modalControlsInjected === '1') return;
+      modal.dataset.modalControlsInjected = '1';
+
+      // Settings/activities headers have their own close button — keep it
+      // but inject the expand toggle next to it.
+      const settingsClose = modal.querySelector('.settings-close-btn');
+
+      const expandBtn = document.createElement('button');
+      expandBtn.type = 'button';
+      expandBtn.className = 'modal-expand-btn';
+      expandBtn.title = 'Expand / Restore';
+      expandBtn.textContent = '⛶';
+      expandBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isMax = modal.classList.toggle('modal-maximized');
+        expandBtn.textContent = isMax ? '⊖' : '⛶';
+        expandBtn.title = isMax ? 'Restore size' : 'Expand';
+      });
+
+      // When a settings-style header is present, slot the expand button
+      // directly next to its close button so the two stay aligned on
+      // every viewport size. Otherwise drop both controls into a floating
+      // group at the top-right of the modal.
+      if (settingsClose) {
+        expandBtn.classList.add('modal-expand-btn-inline');
+        settingsClose.parentElement.insertBefore(expandBtn, settingsClose);
+      } else {
+        const group = document.createElement('div');
+        group.className = 'modal-controls';
+        group.appendChild(expandBtn);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'modal-expand-btn';
+        closeBtn.title = 'Close';
+        closeBtn.textContent = '✕';
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const overlay = modal.closest('.modal-overlay');
+          if (overlay) overlay.style.display = 'none';
+          if (modal.classList.contains('modal-maximized')) {
+            modal.classList.remove('modal-maximized');
+            expandBtn.textContent = '⛶';
+            expandBtn.title = 'Expand / Restore';
+          }
+        });
+        group.appendChild(closeBtn);
+        modal.appendChild(group);
+      }
+    });
+  };
+  _injectModalControls();
+  // Re-run if new modals get inserted later (some plugins/lazy templates)
+  this._injectModalControls = _injectModalControls;
+},
+
+/** Show a custom image context menu (Save / Copy / Open in tab) */
+// ── Hide Image (viewer-side) ──────────────────────────────
+// A per-device way to collapse any chat image you don't want to see. Stored
+// by normalized absolute URL in localStorage so it persists across reloads
+// and re-renders. Distinct from the sender-side "Mark as spoiler" feature:
+// spoilers blur for everyone, hiding is a private comfort toggle.
+
+_normalizeImgSrc(u) {
+  try { return new URL(u, window.location.origin).href; } catch { return String(u || ''); }
+},
+
+_loadHiddenImages() {
+  if (this._hiddenImageSet) return this._hiddenImageSet;
+  let arr = [];
+  try { arr = JSON.parse(localStorage.getItem('haven_hidden_images') || '[]'); } catch {}
+  this._hiddenImageSet = new Set(Array.isArray(arr) ? arr : []);
+  return this._hiddenImageSet;
+},
+
+_saveHiddenImages() {
+  try {
+    localStorage.setItem('haven_hidden_images', JSON.stringify([...this._loadHiddenImages()]));
+  } catch {}
+},
+
+_isImageHidden(u) {
+  return this._loadHiddenImages().has(this._normalizeImgSrc(u));
+},
+
+_hideImage(u) {
+  this._loadHiddenImages().add(this._normalizeImgSrc(u));
+  this._saveHiddenImages();
+},
+
+_unhideImage(u) {
+  this._loadHiddenImages().delete(this._normalizeImgSrc(u));
+  this._saveHiddenImages();
+},
+
+// Slashed-eye ("closed eye") icon — there is no standalone closed-eye emoji,
+// so we reuse the same eye-off glyph the password fields use for "hidden".
+// `off` true → closed/slashed eye; false → open eye.
+_eyeIcon(off, size = 14) {
+  return off
+    ? `<svg class="eye-icon" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
+    : `<svg class="eye-icon" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+},
+
+_hiddenImagePlaceholder(u) {
+  const abs = this._escapeHtml(this._normalizeImgSrc(u));
+  const label = (typeof t === 'function' && t('app.messages.image_hidden')) || 'Image hidden';
+  const hint = (typeof t === 'function' && t('app.messages.click_to_show')) || 'click to show';
+  return `<span class="hidden-image" role="button" tabindex="0" data-hidden-src="${abs}" title="${this._escapeHtml(hint)}">${this._eyeIcon(true)} ${this._escapeHtml(label)} — ${this._escapeHtml(hint)}</span>`;
+},
+
+// Swap a clicked "hidden image" placeholder back to a live image element.
+_revealHiddenImage(ph) {
+  if (!ph) return;
+  const src = ph.dataset.hiddenSrc;
+  if (!src) return;
+  this._unhideImage(src);
+  const img = document.createElement('img');
+  img.src = src;
+  img.className = 'chat-image';
+  img.alt = 'image';
+  ph.replaceWith(img);
+},
+
+_showImageContextMenu(e, src) {
+  this._hideImageContextMenu();
+  const menu = document.createElement('div');
+  menu.id = 'image-context-menu';
+  menu.className = 'image-context-menu';
+  menu.innerHTML = `
+    <button data-action="save">💾 Save Image</button>
+    <button data-action="copy">📋 Copy Image</button>
+    <button data-action="open">🔗 Open in New Tab</button>
+    <button data-action="hide">🙈 ${this._escapeHtml((typeof t === 'function' && t('app.messages.hide_image')) || 'Hide Image')}</button>
+  `;
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  document.body.appendChild(menu);
+  // Clamp to viewport
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+  if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+
+  menu.addEventListener('click', async (ev) => {
+    const action = ev.target.dataset.action;
+    if (action === 'save') {
+      const a = document.createElement('a');
+      a.href = src;
+      a.download = src.split('/').pop().split('?')[0] || 'image';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } else if (action === 'copy') {
+      // Hide the menu immediately so it doesn't sit on screen during
+      // the async fetch + clipboard write. We still control the toast.
+      this._hideImageContextMenu();
+      (async () => {
+        const fetchAsBlob = async () => {
+          const resp = await fetch(src, { credentials: 'same-origin' });
+          if (!resp.ok) throw new Error('fetch ' + resp.status);
+          return await resp.blob();
+        };
+        const toPngBlob = async (blob) => {
+          if (blob.type === 'image/png') return blob;
+          const bitmap = await createImageBitmap(blob);
+          const canvas = document.createElement('canvas');
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          canvas.getContext('2d').drawImage(bitmap, 0, 0);
+          return await new Promise((res, rej) =>
+            canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob null')), 'image/png'));
+        };
+        const blobToDataUrl = (blob) => new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result);
+          r.onerror = () => rej(r.error || new Error('FileReader failed'));
+          r.readAsDataURL(blob);
+        });
+
+        // Strategy 1: Electron desktop IPC (most reliable — main process
+        // clipboard has no user-gesture requirement).
+        if (window.havenDesktop?.clipboardWriteImage) {
+          try {
+            const blob = await fetchAsBlob();
+            const png = await toPngBlob(blob);
+            const dataUrl = await blobToDataUrl(png);
+            const res = await window.havenDesktop.clipboardWriteImage(dataUrl);
+            if (res?.ok) { this._showToast('Image copied to clipboard', 'success'); return; }
+            console.warn('[Haven] IPC clipboard write failed:', res?.reason);
+          } catch (err) {
+            console.warn('[Haven] IPC clipboard path errored:', err);
+          }
+        }
+
+        // Strategy 2: web navigator.clipboard.write with promise-based
+        // ClipboardItem (preserves gesture chain across async fetch).
+        try {
+          if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
+            throw new Error('Clipboard API unavailable');
+          }
+          const blobPromise = (async () => toPngBlob(await fetchAsBlob()))();
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blobPromise })
+          ]);
+          this._showToast('Image copied to clipboard', 'success');
+          return;
+        } catch (err) {
+          console.error('[Haven] Web clipboard.write failed:', err);
+          // Strategy 3: at least put the URL on the clipboard so the
+          // user has something to paste.
+          try {
+            await navigator.clipboard.writeText(src);
+            this._showToast('Copied image URL (browser blocked image copy)', 'warning');
+            return;
+          } catch (err2) {
+            console.error('[Haven] writeText fallback failed:', err2);
+            this._showToast('Failed to copy image: ' + (err.message || err), 'error');
+          }
+        }
+      })();
+      return;
+    } else if (action === 'open') {
+      window.open(src, '_blank', 'noopener,noreferrer');
+    } else if (action === 'hide') {
+      this._hideImage(src);
+      // Collapse every live copy of this image to a placeholder right away.
+      const abs = this._normalizeImgSrc(src);
+      document.querySelectorAll('img.chat-image').forEach(img => {
+        if (this._normalizeImgSrc(img.getAttribute('src')) === abs) {
+          const tmp = document.createElement('div');
+          tmp.innerHTML = this._hiddenImagePlaceholder(abs);
+          img.replaceWith(tmp.firstElementChild);
+        }
+      });
+      // If hidden from the lightbox, close it too.
+      this._closeLightbox?.();
+    }
+    this._hideImageContextMenu();
+  });
+
+  // Close on click elsewhere
+  const closer = (ev) => {
+    if (!menu.contains(ev.target)) {
+      this._hideImageContextMenu();
+      document.removeEventListener('click', closer, true);
+      document.removeEventListener('contextmenu', closer, true);
+    }
+  };
+  setTimeout(() => {
+    document.addEventListener('click', closer, true);
+    document.addEventListener('contextmenu', closer, true);
+  }, 0);
+},
+
+_hideImageContextMenu() {
+  const existing = document.getElementById('image-context-menu');
+  if (existing) existing.remove();
+},
+
+};
