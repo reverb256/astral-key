@@ -13,6 +13,7 @@ pub struct Config {
     pub web3: Web3Config,
     pub fido2: Fido2Config,
     pub jwt: JwtConfig,
+    pub oauth: OAuthConfig,
 }
 
 /// Server configuration
@@ -41,6 +42,13 @@ pub struct Web3Config {
     pub chains: Vec<String>,
     #[serde(default)]
     pub rpc_endpoints: HashMap<String, String>,
+    /// Canonical domain used when building SIWE (EIP-4361) challenge messages.
+    /// Replaces the previous behaviour of trusting the raw `domain` field from the
+    /// inbound HTTP request (which defaulted to `localhost`). The API proxy now
+    /// sends the real hostname, but we validate it against this configured domain
+    /// so a spoofed `domain` header cannot mint a challenge for an attacker origin.
+    #[serde(default = "default_web3_domain")]
+    pub domain: String,
 }
 
 fn default_chains() -> Vec<String> {
@@ -50,6 +58,10 @@ fn default_chains() -> Vec<String> {
         "arbitrum".to_string(),
         "optimism".to_string(),
     ]
+}
+
+fn default_web3_domain() -> String {
+    "maplespike.ca".to_string()
 }
 
 /// FIDO2/WebAuthn configuration
@@ -94,6 +106,33 @@ fn default_refresh_token_ttl() -> u64 {
     604800 // 7 days
 }
 
+/// OAuth provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthProviderConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: String,
+    pub authorize_url: String,
+    pub token_url: String,
+    pub user_info_url: String,
+    pub scopes: String,
+}
+
+/// OAuth configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthConfig {
+    /// Base URL used to build redirect URIs and state parameters.
+    #[serde(default = "default_oauth_base_url")]
+    pub base_url: String,
+    /// GitHub OAuth provider configuration.
+    #[serde(default)]
+    pub github: Option<OAuthProviderConfig>,
+}
+
+fn default_oauth_base_url() -> String {
+    "http://localhost:8080".to_string()
+}
+
 impl Config {
     /// Load configuration from environment variables
     pub fn from_env() -> anyhow::Result<Self> {
@@ -116,6 +155,8 @@ impl Config {
             web3: Web3Config {
                 chains: default_chains(),
                 rpc_endpoints: HashMap::new(),
+                domain: std::env::var("ASTRAL_WEB3_DOMAIN")
+                    .unwrap_or_else(|_| default_web3_domain()),
             },
             fido2: Fido2Config {
                 rp_id: std::env::var("FIDO2_RP_ID").unwrap_or_else(|_| "localhost".to_string()),
@@ -132,8 +173,30 @@ impl Config {
                 access_token_ttl: default_access_token_ttl(),
                 refresh_token_ttl: default_refresh_token_ttl(),
             },
+            oauth: OAuthConfig {
+                base_url: std::env::var("OAUTH_BASE_URL")
+                    .unwrap_or_else(|_| default_oauth_base_url()),
+                github: Self::load_github_oauth_config(),
+            },
         };
 
         Ok(config)
+    }
+
+    fn load_github_oauth_config() -> Option<OAuthProviderConfig> {
+        let client_id = std::env::var("OAUTH_GITHUB_CLIENT_ID").ok()?;
+        let client_secret = std::env::var("OAUTH_GITHUB_CLIENT_SECRET").ok()?;
+
+        Some(OAuthProviderConfig {
+            client_id,
+            client_secret,
+            redirect_uri: std::env::var("OAUTH_GITHUB_REDIRECT_URI").unwrap_or_else(|_| {
+                format!("{}/auth/oauth/github/callback", default_oauth_base_url())
+            }),
+            authorize_url: "https://github.com/login/oauth/authorize".into(),
+            token_url: "https://github.com/login/oauth/access_token".into(),
+            user_info_url: "https://api.github.com/user".into(),
+            scopes: "read:user".into(),
+        })
     }
 }

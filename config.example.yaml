@@ -1,0 +1,90 @@
+# =============================================================================
+# Astral Key — Configuration Reference
+# =============================================================================
+# All configuration is read from environment variables at runtime.
+# This YAML file is documentation only — the binary does NOT read it.
+#
+# Copy this file to use as a reference when setting environment variables
+# in Docker Compose, Kubernetes, or your shell profile.
+# =============================================================================
+
+# ── Server ──────────────────────────────────────────────────────────────────
+server:
+  # Network interface to bind to.
+  # Env: SERVER_HOST | Default: "127.0.0.1"
+  host: "127.0.0.1"
+
+  # TCP port to listen on.
+  # Env: SERVER_PORT  | Default: 8080
+  port: 8080
+
+# ── Database (SQLite) ───────────────────────────────────────────────────────
+database:
+  # SQLite database URL. Supports :memory: for ephemeral use.
+  # Env: DATABASE_URL | Default: "sqlite:astral_key.db?mode=rwc"
+  url: "sqlite:astral_key.db?mode=rwc"
+
+  # Maximum concurrent SQLite connections.
+  # Env: DATABASE_MAX_CONNECTIONS | Default: 5
+  max_connections: 5
+
+# ── Web3 / SIWE ─────────────────────────────────────────────────────────────
+web3:
+  # Canonical domain used in SIWE (EIP-4361) challenge messages.
+  # Incoming requests with a mismatched domain header are rejected.
+  # Env: ASTRAL_WEB3_DOMAIN | Default: "maplespike.ca"
+  domain: "maplespike.ca"
+
+# ── FIDO2 / WebAuthn ────────────────────────────────────────────────────────
+fido2:
+  # Relying Party ID (must match the effective domain in production).
+  # Env: FIDO2_RP_ID | Default: "localhost"
+  rp_id: "localhost"
+
+  # Human-readable Relying Party name shown in the passkey prompt.
+  # Env: FIDO2_RP_NAME | Default: "Astral Key"
+  rp_name: "Astral Key"
+
+  # Comma-separated list of allowed origins (no spaces).
+  # Env: FIDO2_ORIGINS | Default: "http://localhost:8080"
+  origins:
+    - "http://localhost:8080"
+
+  # Attestation conveyance preference: "none", "indirect", or "direct".
+  # Env: FIDO2_ATTESTATION | Default: "indirect"
+  attestation: "indirect"
+
+# ── JWT ─────────────────────────────────────────────────────────────────────
+jwt:
+  # Access token time-to-live in seconds (15 minutes).
+  # Not currently configurable via env — edit src/config.rs to change.
+  access_token_ttl: 900
+
+  # Refresh token time-to-live in seconds (7 days).
+  # Not currently configurable via env — edit src/config.rs to change.
+  refresh_token_ttl: 604800
+
+# ── OAuth (Optional) ────────────────────────────────────────────────────────
+oauth:
+  # Base URL used to build redirect URIs and state parameters.
+  # Env: OAUTH_BASE_URL | Default: "http://localhost:8080"
+  base_url: "http://localhost:8080"
+
+  # GitHub OAuth provider.
+  # All three env vars below must be set for GitHub OAuth to be enabled.
+  github:
+    # Env: OAUTH_GITHUB_CLIENT_ID (no default — optional, omits provider)
+    client_id: ""
+
+    # Env: OAUTH_GITHUB_CLIENT_SECRET (no default — optional, omits provider)
+    client_secret: ""
+
+    # Env: OAUTH_GITHUB_REDIRECT_URI
+    # Default: "{OAUTH_BASE_URL}/auth/oauth/github/callback"
+    redirect_uri: "http://localhost:8080/auth/oauth/github/callback"
+
+# ── Logging ─────────────────────────────────────────────────────────────────
+# Rust tracing/log filter string.
+# Env: RUST_LOG | Default: "info,astral_key=debug"
+# logging:
+#   level: "info,astral_key=debug"

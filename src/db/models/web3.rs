@@ -6,7 +6,19 @@ use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::error::Result;
+use crate::error::{AuthError, Result};
+
+/// Parse RFC 3339 datetime from SQLite TEXT column
+fn parse_dt(s: &str, field: &str) -> Result<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| {
+            AuthError::Database(sqlx::Error::Protocol(format!(
+                "invalid timestamp for {}: '{}' — {}",
+                field, s, e
+            )))
+        })
+}
 
 /// Web3 wallet model
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +55,12 @@ impl Web3Wallet {
         .await?;
 
         Ok(Web3Wallet {
-            id: Uuid::parse_str(&id).unwrap(),
+            id: Uuid::parse_str(&id).map_err(|e| {
+                AuthError::Database(sqlx::Error::Protocol(format!(
+                    "invalid UUID '{}': {}",
+                    id, e
+                )))
+            })?,
             user_id,
             address: address.to_string(),
             chain_id,
@@ -64,20 +81,34 @@ impl Web3Wallet {
             .fetch_optional(pool)
             .await?;
 
-        Ok(row.map(|r| Web3Wallet {
-            id: Uuid::parse_str(r.get::<&str, _>("id")).unwrap(),
-            user_id: Uuid::parse_str(r.get::<&str, _>("user_id")).unwrap(),
-            address: r.get("address"),
-            chain_id: r.get("chain_id"),
-            created_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("created_at"))
-                .unwrap()
-                .with_timezone(&Utc),
-            last_used_at: r.get::<Option<&str>, _>("last_used_at").map(|s| {
-                chrono::DateTime::parse_from_rfc3339(s)
-                    .unwrap()
-                    .with_timezone(&Utc)
-            }),
-        }))
+        Ok(match row {
+            Some(r) => {
+                let row_id: &str = r.get("id");
+                let row_user_id: &str = r.get("user_id");
+                Some(Web3Wallet {
+                    id: Uuid::parse_str(row_id).map_err(|e| {
+                        AuthError::Database(sqlx::Error::Protocol(format!(
+                            "invalid UUID '{}': {}",
+                            row_id, e
+                        )))
+                    })?,
+                    user_id: Uuid::parse_str(row_user_id).map_err(|e| {
+                        AuthError::Database(sqlx::Error::Protocol(format!(
+                            "invalid UUID '{}': {}",
+                            row_user_id, e
+                        )))
+                    })?,
+                    address: r.get("address"),
+                    chain_id: r.get("chain_id"),
+                    created_at: parse_dt(r.get::<&str, _>("created_at"), "created_at")?,
+                    last_used_at: match r.get::<Option<&str>, _>("last_used_at") {
+                        Some(s) => Some(parse_dt(s, "last_used_at")?),
+                        None => None,
+                    },
+                })
+            }
+            None => None,
+        })
     }
 
     /// Get all wallets for a user
@@ -88,23 +119,33 @@ impl Web3Wallet {
                 .fetch_all(pool)
                 .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| Web3Wallet {
-                id: Uuid::parse_str(r.get::<&str, _>("id")).unwrap(),
-                user_id: Uuid::parse_str(r.get::<&str, _>("user_id")).unwrap(),
-                address: r.get("address"),
-                chain_id: r.get("chain_id"),
-                created_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("created_at"))
-                    .unwrap()
-                    .with_timezone(&Utc),
-                last_used_at: r.get::<Option<&str>, _>("last_used_at").map(|s| {
-                    chrono::DateTime::parse_from_rfc3339(s)
-                        .unwrap()
-                        .with_timezone(&Utc)
-                }),
+        rows.into_iter()
+            .map(|r| {
+                let row_id: &str = r.get("id");
+                let row_user_id: &str = r.get("user_id");
+                Ok(Web3Wallet {
+                    id: Uuid::parse_str(row_id).map_err(|e| {
+                        AuthError::Database(sqlx::Error::Protocol(format!(
+                            "invalid UUID '{}': {}",
+                            row_id, e
+                        )))
+                    })?,
+                    user_id: Uuid::parse_str(row_user_id).map_err(|e| {
+                        AuthError::Database(sqlx::Error::Protocol(format!(
+                            "invalid UUID '{}': {}",
+                            row_user_id, e
+                        )))
+                    })?,
+                    address: r.get("address"),
+                    chain_id: r.get("chain_id"),
+                    created_at: parse_dt(r.get::<&str, _>("created_at"), "created_at")?,
+                    last_used_at: match r.get::<Option<&str>, _>("last_used_at") {
+                        Some(s) => Some(parse_dt(s, "last_used_at")?),
+                        None => None,
+                    },
+                })
             })
-            .collect())
+            .collect()
     }
 
     /// Update last used timestamp

@@ -73,6 +73,7 @@ pub async fn register_verify(
         raw_id: request.raw_id.clone(),
         response,
         type_: request.type_.clone(),
+        transports: vec![],
     };
 
     // Finish registration (validates challenge, returns credential info)

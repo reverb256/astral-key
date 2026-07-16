@@ -61,6 +61,8 @@ pub struct RegistrationRequest {
     pub response: RegistrationResponse,
     #[serde(rename = "type")]
     pub type_: String,
+    #[serde(default)]
+    pub transports: Vec<String>,
 }
 
 /// Registration response

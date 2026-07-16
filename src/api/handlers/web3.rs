@@ -23,8 +23,17 @@ pub async fn nonce(
     // Store nonce in cache with 15 minute expiration
     store_nonce(&state, &nonce).await?;
 
-    // Generate SIWE message template
-    let domain = request.domain.unwrap_or_else(|| "localhost".to_string());
+    // Generate SIWE message template.
+    // Use the configured canonical domain (ASTRAL_WEB3_DOMAIN), NOT the raw
+    // `domain` from the inbound request. A spoofed `domain` header could
+    // otherwise mint a challenge for an attacker-controlled origin. We still
+    // accept a matching request domain, but reject anything that does not
+    // equal the configured domain.
+    let configured = state.config.web3.domain.clone();
+    let domain = request
+        .domain
+        .filter(|d| d == &configured)
+        .unwrap_or_else(|| configured.clone());
     let address = request.address.unwrap_or_else(|| "0x0".to_string());
     let chain_id = request.chain_id.unwrap_or(1);
 
