@@ -2,7 +2,8 @@
 //!
 //! Manages SQLite connection pool using SQLx.
 
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use std::str::FromStr;
 
 use crate::config::DatabaseConfig;
 use crate::error::{AuthError, Result};
@@ -18,10 +19,15 @@ impl DbPool {
     pub async fn new(config: &DatabaseConfig) -> Result<Self> {
         tracing::debug!("Creating SQLite connection pool");
 
+        // Build connection options with foreign-key enforcement enabled globally.
+        let connect_options = SqliteConnectOptions::from_str(&config.url)
+            .map_err(|e| AuthError::Config(format!("Invalid DATABASE_URL: {}", e)))?
+            .foreign_keys(true);
+
         let pool = SqlitePoolOptions::new()
             .max_connections(config.max_connections)
             .acquire_timeout(std::time::Duration::from_secs(30))
-            .connect(&config.url)
+            .connect_with(connect_options)
             .await?;
 
         tracing::info!(

@@ -58,7 +58,6 @@ impl Fido2Service {
 
         // Build WebAuthn instance
         let webauthn = builder
-            .require_resident_key(ResidentKeyRequirement::Preferred)
             .build()
             .map_err(|e| AuthError::Config(format!("Failed to build WebAuthn: {}", e)))?;
 

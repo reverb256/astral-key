@@ -32,18 +32,14 @@ pub async fn verify_token(
     };
 
     match jwt.validate_token(&request.token) {
-        Ok(claims) => {
-            Json(json!({
-                "valid": true,
-                "sub": claims.sub,
-                "exp": claims.exp,
-            }))
-        }
-        Err(e) => {
-            Json(json!({
-                "valid": false,
-                "error": e.to_string(),
-            }))
-        }
+        Ok(claims) => Json(json!({
+            "valid": true,
+            "sub": claims.sub,
+            "exp": claims.exp,
+        })),
+        Err(e) => Json(json!({
+            "valid": false,
+            "error": e.to_string(),
+        })),
     }
 }

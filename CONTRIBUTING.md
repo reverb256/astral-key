@@ -1,297 +1,214 @@
 # Contributing to Astral Key
 
-Thank you for your interest in contributing to Astral Key! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to Astral Key! This document
+covers the development workflow, code conventions, and pull request process.
 
-## Project Status
+## Table of Contents
 
-**IMPORTANT:** Astral Key is currently in **early prototype stage** (~5% complete). The architecture is designed, but most core features are not yet implemented. See [STATUS.md](STATUS.md) for current progress and [ROADMAP.md](ROADMAP.md) for the implementation plan.
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+- [Project Structure](#project-structure)
+- [Development Workflow](#development-workflow)
+- [Code Conventions](#code-conventions)
+- [Testing](#testing)
+- [Pull Request Process](#pull-request-process)
+- [Release Process](#release-process)
 
-## Ways to Contribute
+## Prerequisites
 
-We welcome contributions in many forms:
+- **Rust 1.75+** — [Install via rustup](https://rustup.rs)
+- **Nix** with flakes (optional, for `nix develop`) — [nixos.org](https://nixos.org/download.html)
+- **OpenSSL** development headers (for `cargo build`)
 
-### Code Contributions
-
-1. **Pick a task** from [ROADMAP.md](ROADMAP.md) or [STATUS.md](STATUS.md)
-2. **Check for existing issues** or create one to discuss your approach
-3. **Write code** following our coding standards (below)
-4. **Add tests** for your changes
-5. **Update documentation** as needed
-6. **Submit a pull request**
-
-### Documentation
-
-- Improve existing documentation
-- Add examples and tutorials
-- Fix typos and clarify explanations
-- Translate documentation
-
-### Testing
-
-- Write unit tests
-- Write integration tests
-- Report bugs with reproduction steps
-- Test on different platforms
-
-### Code Review
-
-- Review pull requests
-- Suggest improvements
-- Catch security issues
-
-## Development Setup
-
-### Prerequisites
-
-- **Nix** with flakes enabled (recommended)
-- **Rust** 1.75+ (if not using Nix)
-- **Docker** or **Podman** for local services
-
-### Using Nix (Recommended)
+## Getting Started
 
 ```bash
 # Clone the repository
 git clone https://github.com/reverb256/astral-key.git
 cd astral-key
 
-# Enter development environment
+# Enter the Nix development shell (optional — provides pinned Rust toolchain)
 nix develop
 
-# Or with direnv
-direnv allow
+# Or use your system Rust directly
+cargo build
+
+# Run tests
+cargo test
+
+# Start the server (SQLite database created automatically)
+cargo run
 ```
 
-### Without Nix
-
-```bash
-# Install Rust via rustup
-rustup install stable
-rustup default stable
-
-# Install system dependencies (Ubuntu/Debian)
-sudo apt-get install -y postgresql redis-server protobuf-compiler pkg-config libssl-dev
-
-# Install development tools
-cargo install cargo-watch cargo-edit sqlx-cli
-```
-
-### Starting Local Services
-
-```bash
-# Start PostgreSQL and Redis
-just db-up
-
-# Run database migrations
-just migrate
-
-# Start development server
-just dev
-```
-
-## Coding Standards
-
-### Rust Conventions
-
-- **Edition:** Rust 2021
-- **Style:** `cargo fmt` (default rustfmt)
-- **Lints:** `cargo clippy` - must pass with no warnings
-- **Documentation:** Public items must have rustdoc comments
-
-```rust
-//! Module-level documentation
-
-/// Function documentation
-///
-/// # Errors
-///
-/// Returns error if...
-///
-/// # Examples
-///
-/// ```
-/// let result = function();
-/// assert!(result.is_ok());
-/// ```
-pub fn function() -> Result<()> {
-    // ...
-}
-```
-
-### Error Handling
-
-- Use `?` operator for error propagation
-- Never use `unwrap()` in production code (only in tests)
-- Provide context with `.context()` from anyhow
-
-```rust
-use anyhow::Context;
-
-pub async fn get_user(id: Uuid) -> Result<User> {
-    sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .context("Failed to fetch user from database")?
-}
-```
-
-### Database Queries
-
-- Use SQLx with compile-time checked queries
-- Always create migrations before writing queries
-- Use transactions for multi-step operations
-
-```rust
-// In migrations/001_initial.sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    ...
-);
-
-// In code
-sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-    .bind(id)
-    .fetch_one(&pool)
-    .await?
-```
-
-### Testing
-
-- **Unit tests:** In the same file as the code
-- **Integration tests:** In `tests/` directory
-- **Target:** >80% code coverage
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_user_creation() {
-        let user = User::new("test@example.com");
-        assert!(user.id.is_some());
-    }
-}
-```
-
-### Anti-Patterns to Avoid
-
-- **NO** blocking operations in async context
-- **NEVER** use `unwrap()` outside tests
-- **NO** hardcoded secrets (use environment variables)
-- **NEVER** commit database changes without migration
-- **NO** direct database access without connection pool
-- **NEVER** skip authentication in protected routes
-
-## Commit Messages
-
-Follow conventional commit format:
-
-```
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer]
-```
-
-**Types:**
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `style`: Code style changes (formatting)
-- `refactor`: Code refactoring
-- `test`: Test changes
-- `chore`: Build/process changes
-
-**Examples:**
-```
-feat(auth): implement FIDO2 registration ceremony
-
-Add WebAuthn registration flow using webauthn-rs.
-Includes challenge generation and attestation verification.
-
-Closes #123
-```
-
-```
-fix(db): resolve connection pool exhaustion
-
-Increase max_connections and add connection timeout.
-```
-
-## Pull Request Process
-
-1. **Fork** the repository
-2. **Create a branch** for your changes
-   ```bash
-   git checkout -b feat/your-feature-name
-   ```
-3. **Make changes** following coding standards
-4. **Run tests and lints**
-   ```bash
-   just test
-   just lint
-   just fmt
-   ```
-5. **Commit** with clear message
-6. **Push** to your fork
-7. **Open pull request** with:
-   - Description of changes
-   - Reference to related issues
-   - Screenshots if applicable
-8. **Address review feedback**
-
-### PR Checklist
-
-- [ ] Code follows project style guidelines
-- [ ] Tests pass locally (`just test`)
-- [ ] Lints pass (`just lint`)
-- [ ] Documentation updated
-- [ ] Commit messages follow conventions
-- [ ] No merge conflicts
+The server starts on `http://localhost:8080`. See [`docs/api.md`](docs/api.md)
+for endpoint documentation.
 
 ## Project Structure
 
 ```
 astral-key/
 ├── src/
-│   ├── api/              # HTTP layer
-│   ├── auth/             # Authentication modules
-│   ├── db/               # Database layer
-│   ├── cache/            # Redis cache
-│   └── utils/            # Utilities
-├── migrations/           # SQL migrations
-├── tests/                # Integration tests
-├── docs/                 # Documentation
-└── nix/                  # Nix configuration
+│   ├── main.rs           # Application entry point
+│   ├── config.rs         # Environment variable configuration
+│   ├── error.rs          # Error types and HTTP response mapping
+│   ├── state.rs          # Shared application state
+│   ├── api/              # HTTP handlers, routes, middleware
+│   │   ├── routes.rs     # Route definitions
+│   │   └── handlers/     # Request handlers
+│   ├── auth/             # Authentication implementations
+│   │   ├── jwt/          # JWT service and middleware
+│   │   ├── fido2/        # WebAuthn ceremony logic
+│   │   └── web3/         # SIWE signature verification
+│   ├── db/               # SQLite database layer
+│   │   ├── pool.rs       # SQLx connection pool
+│   │   └── models/       # Database models (user, credential, etc.)
+│   └── utils/            # Utility functions
+├── migrations/            # SQLx database migrations
+├── docs/                  # Documentation
+├── Cargo.toml            # Rust dependencies
+├── flake.nix             # Nix flake (dev shell, package)
+└── docker-compose.yml    # Single-service Docker Compose
 ```
 
-## Priority Areas
+## Development Workflow
 
-We're currently focusing on:
+### Building
 
-1. **FIDO2/WebAuthn Implementation** (Week 4-6) - Primary focus
-2. **Web3 SIWE Implementation** (Week 6-7)
-3. **Database Models** (Week 2)
-4. **Testing** (Week 9-10)
+```bash
+# Debug build
+cargo build
 
-See [ROADMAP.md](ROADMAP.md) for full timeline.
+# Release build
+cargo build --release
 
-## Questions?
+# Nix build (reproducible)
+nix build
+```
 
-- **GitHub Issues:** For bugs and feature requests
-- **Discussions:** For questions and ideas
-- **Pull Requests:** For code contributions
+### Running
+
+```bash
+# Development server (auto-migrates on startup)
+cargo run
+
+# With custom settings
+DATABASE_URL=sqlite:test.db?mode=rwc JWT_SECRET=dev-secret-key-1234567890123456 cargo run
+
+# Watch mode (requires cargo-watch)
+cargo watch -x run
+```
+
+### Code Quality
+
+```bash
+# Format code
+cargo fmt
+
+# Run linter
+cargo clippy -- -D warnings
+
+# Security audit
+cargo audit
+```
+
+### Database Migrations
+
+Migrations live in `migrations/` and are automatically applied when the
+server starts. To create a new migration:
+
+```bash
+# Install sqlx-cli
+cargo install sqlx-cli
+
+# Create a migration
+sqlx migrate add -r description_of_change
+```
+
+**Important:** Astral Key uses SQLite. Always write migrations compatible
+with SQLite's subset of SQL.
+
+## Code Conventions
+
+- **Async-first**: All I/O is async with Tokio. Avoid `std::thread::spawn`.
+- **Type safety**: Use Rust's type system to make invalid states
+  unrepresentable. Prefer `enum` over stringly-typed values.
+- **Error handling**: Use `thiserror` for library errors and `anyhow` for
+  application-level error propagation. Never use `unwrap()` or `expect()`
+  outside of tests; use `?` instead.
+- **Configuration**: All configuration comes from environment variables
+  read via `std::env::var` in `src/config.rs`. No config files.
+- **Comments**: Document public APIs with doc comments (`///`). Use
+  `//!` for module-level documentation.
+- **Commit messages**: Follow [Conventional Commits](https://www.conventionalcommits.org/) —
+  `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
+
+## Testing
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests with output
+cargo test -- --nocapture
+
+# Run a specific test
+cargo test test_name
+
+# Run clippy on tests too
+cargo clippy --tests -- -D warnings
+```
+
+### Test Guidelines
+
+1. Unit tests live next to the code they test (in the same file, in a
+   `#[cfg(test)] mod tests` block).
+2. Integration tests live in `tests/` (one file per integration scenario).
+3. Mock external dependencies (e.g., Web3 providers) with traits.
+4. Test error paths, not just happy paths.
+
+## Pull Request Process
+
+1. **Create a feature branch** from `main`:
+   ```bash
+   git checkout -b feat/my-feature
+   ```
+
+2. **Make your changes**, keeping commits small and focused.
+
+3. **Run the full check suite**:
+   ```bash
+   cargo fmt --check
+   cargo clippy --all-targets -- -D warnings
+   cargo test
+   cargo audit
+   ```
+
+4. **Push and open a PR** against the `main` branch.
+
+5. **PR title** should be a conventional commit message (e.g., `feat: add
+   rate-limiting middleware`).
+
+6. **PR body** should describe what changed and why. If it fixes an issue,
+   reference it (e.g., `Closes #42`).
+
+7. **Review** — at least one maintainer must approve. Address all feedback.
+
+8. **Merge** — squash-merge into `main` once approved. The `main` branch
+   is protected; direct pushes are not allowed.
+
+## Release Process
+
+1. Update the version in `Cargo.toml`.
+2. Update `CHANGELOG.md` (if one exists).
+3. Tag the release:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+4. CI builds the container image and publishes to `ghcr.io/reverb256/astral-key`.
+5. Update the `:latest` tag on the container registry.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
-
-## Code of Conduct
-
-Be respectful, inclusive, and collaborative. We're all here to build something great together.
-
----
-
-Thank you for contributing to Astral Key! 🚀
+By contributing, you agree that your contributions will be licensed under
+the [MIT License](LICENSE).

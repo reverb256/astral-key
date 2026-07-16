@@ -6,7 +6,19 @@ use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::error::Result;
+use crate::error::{AuthError, Result};
+
+/// Parse RFC 3339 datetime from SQLite TEXT column
+fn parse_dt(s: &str, field: &str) -> Result<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| {
+            AuthError::Database(sqlx::Error::Protocol(format!(
+                "invalid timestamp for {}: '{}' — {}",
+                field, s, e
+            )))
+        })
+}
 
 /// FIDO2 credential model
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,25 +35,34 @@ pub struct Fido2Credential {
     pub name: Option<String>,
 }
 
-fn row_to_credential(r: sqlx::sqlite::SqliteRow) -> Fido2Credential {
-    Fido2Credential {
-        id: Uuid::parse_str(r.get::<&str, _>("id")).unwrap(),
-        user_id: Uuid::parse_str(r.get::<&str, _>("user_id")).unwrap(),
+fn row_to_credential(r: sqlx::sqlite::SqliteRow) -> Result<Fido2Credential> {
+    let row_id: &str = r.get("id");
+    let row_user_id: &str = r.get("user_id");
+    Ok(Fido2Credential {
+        id: Uuid::parse_str(row_id).map_err(|e| {
+            AuthError::Database(sqlx::Error::Protocol(format!(
+                "invalid UUID '{}': {}",
+                row_id, e
+            )))
+        })?,
+        user_id: Uuid::parse_str(row_user_id).map_err(|e| {
+            AuthError::Database(sqlx::Error::Protocol(format!(
+                "invalid UUID '{}': {}",
+                row_user_id, e
+            )))
+        })?,
         credential_id: r.get("credential_id"),
         public_key: r.get("public_key"),
         counter: r.get("counter"),
         transport: r.get("transport"),
         attestation_type: r.get("attestation_type"),
-        created_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("created_at"))
-            .unwrap()
-            .with_timezone(&Utc),
-        last_used_at: r.get::<Option<&str>, _>("last_used_at").map(|s| {
-            chrono::DateTime::parse_from_rfc3339(s)
-                .unwrap()
-                .with_timezone(&Utc)
-        }),
+        created_at: parse_dt(r.get::<&str, _>("created_at"), "created_at")?,
+        last_used_at: match r.get::<Option<&str>, _>("last_used_at") {
+            Some(s) => Some(parse_dt(s, "last_used_at")?),
+            None => None,
+        },
         name: r.get("name"),
-    }
+    })
 }
 
 impl Fido2Credential {
@@ -68,7 +89,12 @@ impl Fido2Credential {
         .await?;
 
         Ok(Fido2Credential {
-            id: Uuid::parse_str(&id).unwrap(),
+            id: Uuid::parse_str(&id).map_err(|e| {
+                AuthError::Database(sqlx::Error::Protocol(format!(
+                    "invalid UUID '{}': {}",
+                    id, e
+                )))
+            })?,
             user_id,
             credential_id: credential_id.to_string(),
             public_key: public_key.to_string(),
@@ -91,7 +117,10 @@ impl Fido2Credential {
             .fetch_optional(pool)
             .await?;
 
-        Ok(row.map(row_to_credential))
+        match row {
+            Some(r) => Ok(Some(row_to_credential(r)?)),
+            None => Ok(None),
+        }
     }
 
     /// Get credential by internal ID
@@ -101,7 +130,10 @@ impl Fido2Credential {
             .fetch_optional(pool)
             .await?;
 
-        Ok(row.map(row_to_credential))
+        match row {
+            Some(r) => Ok(Some(row_to_credential(r)?)),
+            None => Ok(None),
+        }
     }
 
     /// Get all credentials for a user
@@ -113,7 +145,7 @@ impl Fido2Credential {
         .fetch_all(pool)
         .await?;
 
-        Ok(rows.into_iter().map(row_to_credential).collect())
+        rows.into_iter().map(row_to_credential).collect()
     }
 
     /// Update counter and last used timestamp

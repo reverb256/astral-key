@@ -1,21 +1,94 @@
-# Astral Key - Deployment Guide
+# Deployment Guide
 
-## Overview
+Astral Key is a single-binary service with no external dependencies (SQLite
+database). This guide covers deployment options.
 
-This guide covers deploying Astral Key in various environments.
+## Table of Contents
 
-## NixOS Deployment
+- [Quick Start (Docker Compose)](#quick-start-docker-compose)
+- [Docker Compose (Detailed)](#docker-compose-detailed)
+- [Nix / NixOS](#nix--nixos)
+- [Kubernetes (K3s)](#kubernetes-k3s)
+- [Environment Variables](#environment-variables)
+- [Health Checks](#health-checks)
+- [Production Checklist](#production-checklist)
 
-### Using the NixOS Module
+---
 
-Add to your NixOS configuration:
+## Quick Start (Docker Compose)
+
+```bash
+# Clone the repository
+git clone https://github.com/reverb256/astral-key.git
+cd astral-key
+
+# Set a strong JWT secret
+export JWT_SECRET=$(openssl rand -hex 32)
+
+# Start the service
+docker compose up -d
+
+# Verify
+curl http://localhost:8080/health
+```
+
+No external database, Redis, or Vaultwarden is required. Astral Key embeds
+SQLite and persists data on a Docker volume.
+
+---
+
+## Docker Compose (Detailed)
+
+See [`docker-compose.yml`](../docker-compose.yml) for the canonical file.
+
+### Building the image locally
+
+```bash
+docker build -t ghcr.io/reverb256/astral-key:latest .
+docker compose up -d
+```
+
+### Using a pre-built image
+
+Images are published to `ghcr.io/reverb256/astral-key`. The Docker Compose
+file references this image by default.
+
+### Environment overrides
+
+Create an `.env` file:
+
+```bash
+# .env
+JWT_SECRET=your-256-bit-hex-secret-here
+FIDO2_RP_ID=auth.example.com
+FIDO2_ORIGINS=https://auth.example.com
+```
+
+Then:
+
+```bash
+docker compose --env-file .env up -d
+```
+
+---
+
+## Nix / NixOS
+
+### Nix Flake (Dev Shell)
+
+```bash
+nix develop
+cargo build --release
+./target/release/astral-key
+```
+
+### NixOS Module
+
+A NixOS module is available in the `nix/` directory. Example usage:
 
 ```nix
-{ config, pkgs, ... }:
-
 {
   imports = [
-    # Import the Astral Key module
     (builtins.fetchTarball {
       url = "https://github.com/reverb256/astral-key/archive/main.tar.gz";
     } + "/nix/nixos-module.nix")
@@ -23,176 +96,34 @@ Add to your NixOS configuration:
 
   services.astral-key = {
     enable = true;
-    
-    # Server configuration
     host = "0.0.0.0";
     port = 8080;
-    workers = 4;
-    
-    # Database
-    database.url = "postgresql://astral:secret@localhost/astral_key";
-    
-    # Redis
-    redis.url = "redis://localhost:6379";
-    
-    # Vaultwarden
-    vaultwarden.url = "http://localhost:8000";
-    vaultwarden.adminTokenFile = "/run/secrets/vaultwarden-admin-token";
-    
-    # FIDO2/WebAuthn
+    database.url = "sqlite:/var/lib/astral-key/db.sqlite?mode=rwc";
     fido2.rpId = "auth.example.com";
     fido2.origin = "https://auth.example.com";
-    
-    # JWT
     jwt.secretFile = "/run/secrets/jwt-secret";
-    
-    # Firewall
     openFirewall = true;
   };
-  
-  # Required services
-  services.postgresql = {
-    enable = true;
-    ensureDatabases = [ "astral_key" ];
-    ensureUsers = [{
-      name = "astral";
-      ensureDBOwnership = true;
-    }];
-  };
-  
-  services.redis.servers.astral-key = {
-    enable = true;
-    bind = "127.0.0.1";
-  };
-  
-  # Secrets (using sops-nix or agenix)
-  sops.secrets.jwt-secret = {
-    owner = "astral-key";
-    group = "astral-key";
-  };
-  
-  sops.secrets.vaultwarden-admin-token = {
-    owner = "astral-key";
-    group = "astral-key";
-  };
 }
 ```
 
-### Deploy with Colmena
+> **Note:** The NixOS module is currently being developed. The `nix/`
+> directory is a work in progress.
 
-```nix
-# hive.nix
-{
-  meta.nixpkgs = import <nixpkgs> {};
+---
 
-  server = { config, pkgs, ... }: {
-    deployment.targetHost = "server.example.com";
-    
-    imports = [ ./astral-key-module.nix ];
-    
-    services.astral-key = {
-      enable = true;
-      # ... configuration
-    };
-  };
-}
-```
+## Kubernetes (K3s)
 
-```bash
-colmena apply
-```
-
-## Container Deployment
-
-### Docker
-
-```bash
-# Build container image
-nix build .#container
-
-# Load into Docker
-docker load < result
-
-# Run
-docker run -d \
-  --name astral-key \
-  -p 8080:8080 \
-  -e DATABASE_URL="postgresql://..." \
-  -e REDIS_URL="redis://..." \
-  -e VAULTWARDEN_URL="http://..." \
-  astral-key:latest
-```
-
-### Docker Compose
+Astral Key is deployed on a K3s cluster in production. See the `k8s/`
+directory for manifests. Example deployment:
 
 ```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  astral-key:
-    image: astral-key:latest
-    ports:
-      - "8080:8080"
-    environment:
-      - DATABASE_URL=postgresql://astral:secret@postgres:5432/astral_key
-      - REDIS_URL=redis://redis:6379
-      - VAULTWARDEN_URL=http://vaultwarden:8000
-      - FIDO2_RP_ID=auth.example.com
-      - FIDO2_ORIGIN=https://auth.example.com
-    depends_on:
-      - postgres
-      - redis
-      - vaultwarden
-    secrets:
-      - jwt_secret
-
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=astral
-      - POSTGRES_PASSWORD=secret
-      - POSTGRES_DB=astral_key
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-
-  vaultwarden:
-    image: vaultwarden/server:latest
-    environment:
-      - WEB_VAULT_ENABLED=true
-      - ADMIN_TOKEN_FILE=/run/secrets/admin_token
-    volumes:
-      - vaultwarden_data:/data
-    secrets:
-      - admin_token
-
-volumes:
-  postgres_data:
-  redis_data:
-  vaultwarden_data:
-
-secrets:
-  jwt_secret:
-    file: ./secrets/jwt_secret
-  admin_token:
-    file: ./secrets/admin_token
-```
-
-### Kubernetes
-
-```yaml
-# k8s/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: astral-key
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: astral-key
@@ -203,39 +134,40 @@ spec:
     spec:
       containers:
       - name: astral-key
-        image: astral-key:latest
+        image: ghcr.io/reverb256/astral-key:latest
         ports:
         - containerPort: 8080
         env:
         - name: DATABASE_URL
+          value: "sqlite:/data/astral-key.db?mode=rwc"
+        - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
               name: astral-key-secrets
-              key: database-url
-        - name: REDIS_URL
-          valueFrom:
-            secretKeyRef:
-              name: astral-key-secrets
-              key: redis-url
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
+              key: jwt-secret
+        - name: FIDO2_RP_ID
+          value: "auth.example.com"
+        - name: FIDO2_ORIGINS
+          value: "https://auth.example.com"
+        volumeMounts:
+        - name: data
+          mountPath: /data
         livenessProbe:
           httpGet:
             path: /health
             port: 8080
           initialDelaySeconds: 10
-          periodSeconds: 10
+          periodSeconds: 30
         readinessProbe:
           httpGet:
             path: /ready
             port: 8080
           initialDelaySeconds: 5
-          periodSeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: astral-key-data
 ---
 apiVersion: v1
 kind: Service
@@ -250,169 +182,55 @@ spec:
   type: ClusterIP
 ```
 
-## Secrets Management
+---
 
-### sops-nix
+## Environment Variables
 
-```yaml
-# .sops.yaml
-keys:
-  - &admin_age age1...
-creation_rules:
-  - path_regex: secrets/[^/]+\.yaml$
-    key_groups:
-    - age:
-      - *admin_age
-```
-
-```yaml
-# secrets/astral-key.yaml
-jwt_secret: ENC[AES256_GCM,data:...,iv:...,tag:...,type:str]
-sops:
-  # ... sops metadata
-```
-
-### agenix
-
-```nix
-# secrets.nix
-let
-  user = "ssh-ed25519 AAAAC3NzaC...";
-in
-{
-  "jwt_secret.age".publicKeys = [ user ];
-  "vaultwarden_token.age".publicKeys = [ user ];
-}
-```
-
-## Monitoring
-
-### Prometheus Metrics
-
-Astral Key exposes metrics at `/metrics`:
-
-```yaml
-# prometheus.yml
-scrape_configs:
-  - job_name: 'astral-key'
-    static_configs:
-      - targets: ['localhost:8080']
-```
-
-### Health Checks
-
-- `GET /health` - Liveness probe
-- `GET /ready` - Readiness probe (checks dependencies)
-
-## SSL/TLS
-
-### With Nginx
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name auth.example.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### With Traefik
-
-```yaml
-# docker-compose.yml
-labels:
-  - "traefik.enable=true"
-  - "traefik.http.routers.astral-key.rule=Host(`auth.example.com`)"
-  - "traefik.http.routers.astral-key.tls=true"
-  - "traefik.http.routers.astral-key.tls.certresolver=letsencrypt"
-```
-
-## Backup and Recovery
-
-### Database Backup
-
-```bash
-# Backup PostgreSQL
-pg_dump -h localhost -U astral astral_key > backup.sql
-
-# Backup Vaultwarden
-tar -czf vaultwarden-backup.tar.gz /var/lib/vaultwarden
-```
-
-### Automated Backups
-
-```nix
-# NixOS configuration
-services.postgresqlBackup = {
-  enable = true;
-  location = "/var/backup/postgresql";
-  startAt = "*-*-* 02:00:00";
-};
-```
-
-## Troubleshooting
-
-### Check Service Status
-
-```bash
-# NixOS
-systemctl status astral-key
-journalctl -u astral-key -f
-
-# Docker
-docker logs astral-key
-
-# Kubernetes
-kubectl logs -l app=astral-key
-```
-
-### Common Issues
-
-1. **Database connection refused**
-   - Check PostgreSQL is running
-   - Verify connection string
-   - Check firewall rules
-
-2. **Vaultwarden authentication failed**
-   - Verify admin token
-   - Check Vaultwarden URL
-   - Review Vaultwarden logs
-
-3. **FIDO2 registration fails**
-   - Verify rp_id matches domain
-   - Check origin is HTTPS in production
-   - Ensure authenticator is supported
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SERVER_HOST` | No | `127.0.0.1` | Network interface to bind to |
+| `SERVER_PORT` | No | `8080` | TCP port |
+| `DATABASE_URL` | No | `sqlite:astral_key.db?mode=rwc` | SQLite database URL |
+| `DATABASE_MAX_CONNECTIONS` | No | `5` | Max SQLite connections |
+| `JWT_SECRET` | **Yes** | — | JWT signing key (≥32 bytes). Generate: `openssl rand -hex 32` |
+| `FIDO2_RP_ID` | No | `localhost` | WebAuthn Relying Party ID |
+| `FIDO2_RP_NAME` | No | `Astral Key` | Human-readable RP name |
+| `FIDO2_ORIGINS` | No | `http://localhost:8080` | Comma-separated allowed origins |
+| `FIDO2_ATTESTATION` | No | `indirect` | Attestation preference: `none`, `indirect`, `direct` |
+| `ASTRAL_WEB3_DOMAIN` | No | `maplespike.ca` | Canonical SIWE domain |
+| `OAUTH_BASE_URL` | No | `http://localhost:8080` | Base URL for OAuth redirects |
+| `OAUTH_GITHUB_CLIENT_ID` | No | — | GitHub OAuth client ID (optional — omit to disable) |
+| `OAUTH_GITHUB_CLIENT_SECRET` | No | — | GitHub OAuth client secret |
+| `OAUTH_GITHUB_REDIRECT_URI` | No | `{OAUTH_BASE_URL}/auth/oauth/github/callback` | OAuth redirect URI |
+| `RUST_LOG` | No | `info,astral_key=debug` | Tracing/log filter |
 
 ---
 
-> Snapshot from August 2026 cleanup; verify current state via `/etc/nixos/SOPS-NIX.md`.
+## Health Checks
 
-## See Also — SOPS-NIX (canonical on this host)
+| Endpoint | Type | Description |
+|----------|------|-------------|
+| `GET /health` | Liveness | Always returns `200` if the process is running |
+| `GET /ready` | Readiness | Returns `200` when the database is reachable, `503` otherwise |
 
-For canonical sops-nix status, key file location (`/etc/nixos/.age/key.txt`),
-registry module structure (`/etc/nixos/modules/system/sops-secrets-registry.nix`),
-current recipients (`/etc/nixos/.sops.yaml`), and recovery workflow, see
-`/etc/nixos/SOPS-NIX.md`.
+---
 
-Quick facts that hold on this NixOS host (zephyr):
-- Registry `services.sops-secrets-registry.enable` defaults to `false` on
-  all 5 hosts (forge, nexus, sentry, zephyr, krash3); the registry's
-  `mkIf` block is currently inert and `config.sops.secrets` evaluates to
-  `[]` until a host opts in.
-- 0/135 existing encrypted files decrypt locally today (legacy
-  recipients pre-date the single-pubkey `.sops.yaml` policy). The
-  `/etc/nixos/.sops.yaml` already names the local pubkey, so new
-  encryptions will decrypt on zephyr.
-- After any `age-keygen` / `sops updatekeys` operation, sync the user
-  key to the canonical location:
-  `sudo cp ~/.age/key.txt /etc/nixos/.age/key.txt && sudo chown root:root /etc/nixos/.age/key.txt && sudo chmod 600 /etc/nixos/.age/key.txt`.
+## Production Checklist
+
+- [ ] **Set a strong `JWT_SECRET`** — at least 32 bytes, generated via
+      `openssl rand -hex 32`. Never commit this to version control.
+- [ ] **Use HTTPS** — WebAuthn requires a secure context (HTTPS or
+      `localhost`) in browsers. Deploy behind a TLS-terminating reverse
+      proxy (Nginx, Traefik, Caddy) or use a K3s ingress with cert-manager.
+- [ ] **Set `FIDO2_RP_ID` and `FIDO2_ORIGINS`** to match your production
+      domain. These must match exactly what the browser sees.
+- [ ] **Persist the SQLite database** — mount a Docker volume or host path
+      to `/data` (or wherever `DATABASE_URL` points).
+- [ ] **Back up the database** regularly — the entire state is in a single
+      `.db` file.
+- [ ] **Configure `RUST_LOG`** — set to `warn,astral_key=info` in production
+      to reduce noise, or `astral_key=debug` during incident response.
+- [ ] **Monitor health** — configure your orchestration to use `/health` and
+      `/ready` probes as shown above.
+- [ ] **Resource limits** — Astral Key is lightweight. 256 MiB RAM and
+      0.5 CPU cores are sufficient for most workloads.

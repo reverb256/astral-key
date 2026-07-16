@@ -6,7 +6,19 @@ use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::error::Result;
+use crate::error::{AuthError, Result};
+
+/// Parse RFC 3339 datetime from SQLite TEXT column
+fn parse_dt(s: &str, field: &str) -> Result<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| {
+            AuthError::Database(sqlx::Error::Protocol(format!(
+                "invalid timestamp for {}: '{}' — {}",
+                field, s, e
+            )))
+        })
+}
 
 /// Nonce model
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +56,12 @@ impl Nonce {
         .await?;
 
         Ok(Nonce {
-            id: Uuid::parse_str(&id).unwrap(),
+            id: Uuid::parse_str(&id).map_err(|e| {
+                AuthError::Database(sqlx::Error::Protocol(format!(
+                    "invalid UUID '{}': {}",
+                    id, e
+                )))
+            })?,
             nonce: nonce.to_string(),
             expires_at,
             created_at: Utc::now(),
@@ -61,24 +78,33 @@ impl Nonce {
             .await?;
 
         match row {
-            Some(r) => Ok(Some(Nonce {
-                id: Uuid::parse_str(r.get::<&str, _>("id")).unwrap(),
-                nonce: r.get("nonce"),
-                expires_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("expires_at"))
-                    .unwrap()
-                    .with_timezone(&Utc),
-                created_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("created_at"))
-                    .unwrap()
-                    .with_timezone(&Utc),
-                used_at: r.get::<Option<&str>, _>("used_at").map(|s| {
-                    chrono::DateTime::parse_from_rfc3339(s)
-                        .unwrap()
-                        .with_timezone(&Utc)
-                }),
-                user_id: r
-                    .get::<Option<&str>, _>("user_id")
-                    .map(|s| Uuid::parse_str(s).unwrap()),
-            })),
+            Some(r) => {
+                let row_id: &str = r.get("id");
+                Ok(Some(Nonce {
+                    id: Uuid::parse_str(row_id).map_err(|e| {
+                        AuthError::Database(sqlx::Error::Protocol(format!(
+                            "invalid UUID '{}': {}",
+                            row_id, e
+                        )))
+                    })?,
+                    nonce: r.get("nonce"),
+                    expires_at: parse_dt(r.get::<&str, _>("expires_at"), "expires_at")?,
+                    created_at: parse_dt(r.get::<&str, _>("created_at"), "created_at")?,
+                    used_at: match r.get::<Option<&str>, _>("used_at") {
+                        Some(s) => Some(parse_dt(s, "used_at")?),
+                        None => None,
+                    },
+                    user_id: match r.get::<Option<&str>, _>("user_id") {
+                        Some(s) => Some(Uuid::parse_str(s).map_err(|e| {
+                            AuthError::Database(sqlx::Error::Protocol(format!(
+                                "invalid UUID '{}': {}",
+                                s, e
+                            )))
+                        })?),
+                        None => None,
+                    },
+                }))
+            }
             None => Ok(None),
         }
     }

@@ -6,7 +6,19 @@ use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::error::Result;
+use crate::error::{AuthError, Result};
+
+/// Parse RFC 3339 datetime from SQLite TEXT column
+fn parse_dt(s: &str, field: &str) -> Result<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| {
+            AuthError::Database(sqlx::Error::Protocol(format!(
+                "invalid timestamp for {}: '{}' — {}",
+                field, s, e
+            )))
+        })
+}
 
 /// User model
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,7 +42,12 @@ impl User {
             .await?;
 
         Ok(Self {
-            id: Uuid::parse_str(&id).unwrap(),
+            id: Uuid::parse_str(&id).map_err(|e| {
+                AuthError::Database(sqlx::Error::Protocol(format!(
+                    "invalid UUID '{}': {}",
+                    id, e
+                )))
+            })?,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         })
@@ -45,15 +62,19 @@ impl User {
             .await?;
 
         match row {
-            Some(r) => Ok(Some(User {
-                id: Uuid::parse_str(r.get::<&str, _>("id")).unwrap(),
-                created_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("created_at"))
-                    .unwrap()
-                    .with_timezone(&Utc),
-                updated_at: chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("updated_at"))
-                    .unwrap()
-                    .with_timezone(&Utc),
-            })),
+            Some(r) => {
+                let row_id: &str = r.get("id");
+                Ok(Some(User {
+                    id: Uuid::parse_str(row_id).map_err(|e| {
+                        AuthError::Database(sqlx::Error::Protocol(format!(
+                            "invalid UUID '{}': {}",
+                            row_id, e
+                        )))
+                    })?,
+                    created_at: parse_dt(r.get::<&str, _>("created_at"), "created_at")?,
+                    updated_at: parse_dt(r.get::<&str, _>("updated_at"), "updated_at")?,
+                }))
+            }
             None => Ok(None),
         }
     }

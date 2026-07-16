@@ -1,0 +1,143 @@
+# Astral Key — declarative Kubernetes manifest (source of truth)
+#
+# WHY THIS FILE EXISTS:
+#   The astral-key Deployment was previously applied IMPERATIVELY (kubectl set env /
+#   kubectl apply of a local file) with image `localhost/astral-key:latest`. That created
+#   config drift: no repo owned it, env-var NAMES did not match what the Rust binary
+#   actually reads (see config.rs), and values were pinned to `maplespike.lan`.
+#
+#   This manifest is the long-term fix (Option B): astral-key owns its own deploy
+#   spec, in its own repo, next to the Rust source it builds. A quill change can
+#   no longer silently re-apply or shadow this object.
+#
+# CRITICAL — env-var names MUST match src/config.rs EXACTLY:
+#   Rust reads: FIDO2_RP_ID, FIDO2_RP_NAME, FIDO2_ORIGINS (plural!),
+#   ASTRAL_WEB3_DOMAIN (added below; the old WEB3__SIWE_DOMAIN is NOT read
+#   by Rust and is dead config — do not use it).
+#
+# All hostnames derive from QUILL_DOMAIN so they stay in lockstep with the
+#   quill-api deployment (which also exports QUILL_DOMAIN=maplespike.ca).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: astral-key
+  namespace: astral-key
+  labels:
+    app: astral-key
+    managed-by: astral-key-repo
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: astral-key
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app: astral-key
+    spec:
+      # Pin to nexus so the locally-built image (pushed to nexus:5000/astral-key:latest)
+      # is co-located with the node that holds it. Remove nodeName once a registry
+      # pull strategy is in place.
+      nodeName: nexus
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      containers:
+        - name: astral-key
+          image: nexus:5000/astral-key:latest
+          # TODO: pin image digest once a registry with digest support is ready (e.g. ghcr.io or Nexus with manifest/digest API)
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SERVER_HOST
+              value: "0.0.0.0"
+            - name: SERVER_PORT
+              value: "8080"
+            - name: DATABASE_URL
+              value: postgresql://astral:***@astral-key-postgres:5432/astral_key
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: astral-key-jwt
+                  key: secret
+            # --- FIDO2 / WebAuthn (env names MUST match src/config.rs) ---
+            - name: FIDO2_RP_ID
+              value: maplespike.ca
+            - name: FIDO2_RP_NAME
+              value: MapleSpike
+            # NOTE: plural ORIGINS (not RP_ORIGIN). Comma-separated list of
+            # allowed origins. Rust default was http://localhost:8080 — that is why
+            # passkeys rejected every real browser origin.
+            - name: FIDO2_ORIGINS
+              value: "https://maplespike.ca,https://quill.maplespike.ca,https://api.maplespike.ca"
+            # --- Web3 / SIWE ---
+            # ASTRAL_WEB3_DOMAIN is read by src/auth/web3/nonce.rs (added in the
+            # same change that introduces this manifest). The legacy WEB3__SIWE_DOMAIN
+            # env is NOT consumed by Rust and must not be used.
+            - name: ASTRAL_WEB3_DOMAIN
+              value: maplespike.ca
+            - name: RUST_LOG
+              value: info,astral_key=debug
+            # Single-source the hostname so quill-api + astral-key never drift.
+            - name: QUILL_DOMAIN
+              value: maplespike.ca
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            successThreshold: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - name: issuer-key
+              mountPath: /run/secrets/astral-key-issuer
+              readOnly: true
+            - name: data
+              mountPath: /data
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: issuer-key
+          secret:
+            secretName: astral-key-issuer
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: astral-key
+  namespace: astral-key
+  labels:
+    app: astral-key
+spec:
+  selector:
+    app: astral-key
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
