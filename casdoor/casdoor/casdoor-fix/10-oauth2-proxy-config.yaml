@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oauth2-proxy-conf
+  namespace: auth
+data:
+  oauth2_proxy.cfg: |
+    provider = "oidc"
+    oidc_issuer_url = "https://auth.lan"
+    client_id = "oauth2-proxy"
+    client_secret = ""
+    cookie_secret = "NjQxNDZkZGE1NmEwYzU2MmI0NWI4NDQ0NThmMjYyNzM="
+    email_domains = ["*"]
+    upstream = "http://127.0.0.1:8080/"
+    redirect_url = "https://auth.lan/oauth2/callback"
+    cookie_domain = "auth.lan"
+    cookie_secure = true
+    cookie_samesite = "Lax"
+    pass_access_token = true
+    pass_authorization_header = true
+    set_authorization_header = true
+    skip_provider_tls_verify = false
+    scope = "openid profile email groups offline_access"
+    login_url = "https://auth.lan/oauth/authorize"
+    redeem_url = "https://auth.lan/oauth/token"
+    validate_url = "https://auth.lan/oauth/token/introspect"
+    cookie_refresh = "5m"
+    cookie_expire = "12h"
+    reverse_proxy = true
+    real_client_ip_header = "X-Real-IP"
+    trusted_ips = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    whitelist_domain = ".auth.lan"
+    cookie_name = "_oauth2_proxy"
+    banner = ""
+    footer = ""
+    skip_auth_preflight = true
+    skip_jwt_bearer_tokens = false

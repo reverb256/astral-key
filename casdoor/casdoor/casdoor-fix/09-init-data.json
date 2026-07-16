@@ -1,0 +1,9 @@
+{
+  "admin": {
+    "username": "casdoor",
+    "password": "secure_password",
+    "email": "admin@casdoor.com",
+    "must_change_password": false
+  },
+  "default_admin": true
+}

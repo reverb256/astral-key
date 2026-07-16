@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="mosiac.page_title">Mosiac — Identity</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/mosiac-identity.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo" data-i18n="mosiac.brand">⍟ Mosiac</div>
+    <div class="phase-badge" data-i18n="mosiac.phase_badge">Phase 1: Identity Layer</div>
+    <div class="lang-switcher">
+      <select id="lang-select" class="settings-select" style="margin-left:auto;font-size:0.8rem;padding:2px 6px;">
+        <option value="en">🇬🇧 English</option>
+        <option value="fr">🇫🇷 Français</option>
+      </select>
+    </div>
+  </header>
+
+  <main id="app">
+    <!-- Splash / Unauthenticated -->
+    <section id="splash" class="view active">
+      <div class="splash-card">
+        <h1 data-i18n="mosiac.splash_welcome">Welcome to Mosiac</h1>
+        <p class="subtitle" data-i18n="mosiac.splash_subtitle">A decentralized social platform built on Ed25519 identities.</p>
+        <div class="splash-actions">
+          <button id="btn-register" class="btn btn-primary" data-i18n="mosiac.splash_create_identity">Create Identity with Passkey</button>
+          <button id="btn-login" class="btn btn-secondary" data-i18n="mosiac.splash_login_passkey">Login with Passkey</button>
+        </div>
+        <div class="splash-existing">
+          <p data-i18n="mosiac.splash_existing_question">Already have an identity?</p>
+          <button id="btn-show-existing" class="btn btn-ghost" data-i18n="mosiac.splash_show_existing">Show existing identities</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Registration (step 1 + 2) -->
+    <section id="register" class="view">
+      <div class="card">
+        <h2 data-i18n="mosiac.register_title">Create Your Identity</h2>
+        <div id="register-step1">
+          <p data-i18n="mosiac.register_generating">We're generating your Ed25519 key pair and preparing passkey registration.</p>
+          <div class="spinner"></div>
+        </div>
+        <div id="register-step2" class="hidden">
+          <div class="success-icon">✓</div>
+          <h3 data-i18n="mosiac.register_created">Identity Created!</h3>
+          <div class="identity-display">
+            <div class="field">
+              <label data-i18n="mosiac.register_public_key">Public Key</label>
+              <code class="pubkey-display" id="reg-pubkey"></code>
+            </div>
+            <div class="field">
+              <label data-i18n="mosiac.register_fingerprint">Fingerprint</label>
+              <code id="reg-fingerprint"></code>
+            </div>
+            <div class="field">
+              <label data-i18n="mosiac.register_uri">URI</label>
+              <code id="reg-uri" class="small"></code>
+            </div>
+          </div>
+          <div id="reg-passkey-section">
+            <p data-i18n="mosiac.register_register_passkey_hint">Now register a passkey to protect this identity.</p>
+            <button id="btn-register-passkey" class="btn btn-primary" data-i18n="mosiac.register_register_passkey_btn">Register Passkey</button>
+          </div>
+        </div>
+        <div id="register-complete" class="hidden">
+          <div class="success-icon">✓</div>
+          <h3 data-i18n="mosiac.register_passkey_done_title">Passkey Registered!</h3>
+          <p data-i18n="mosiac.register_passkey_done_text">Your identity is now secured with a passkey.</p>
+          <button id="btn-reg-go-dashboard" class="btn btn-primary" data-i18n="mosiac.register_go_dashboard">Go to Dashboard</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Login -->
+    <section id="login" class="view">
+      <div class="card">
+        <h2 data-i18n="mosiac.login_title">Login with Passkey</h2>
+        <p data-i18n="mosiac.login_subtitle">Use your registered passkey to authenticate.</p>
+        <button id="btn-login-passkey" class="btn btn-primary" data-i18n="mosiac.login_auth_btn">Authenticate with Passkey</button>
+        <div id="login-error" class="error hidden"></div>
+      </div>
+    </section>
+
+    <!-- Dashboard (authenticated) -->
+    <section id="dashboard" class="view">
+      <div class="card">
+        <div class="dash-header">
+          <h2 data-i18n="mosiac.dashboard_title">Your Identity</h2>
+          <button id="btn-logout" class="btn btn-ghost" data-i18n="mosiac.dashboard_logout">Logout</button>
+        </div>
+        <div class="identity-display">
+          <div class="field">
+            <label data-i18n="mosiac.dashboard_public_key">Public Key</label>
+            <code class="pubkey-display" id="dash-pubkey"></code>
+          </div>
+          <div class="field">
+            <label data-i18n="mosiac.dashboard_fingerprint">Fingerprint</label>
+            <code id="dash-fingerprint"></code>
+          </div>
+          <div class="field">
+            <label data-i18n="mosiac.dashboard_hex">Hex</label>
+            <code id="dash-hex" class="small"></code>
+          </div>
+          <div class="field">
+            <label data-i18n="mosiac.dashboard_uri">URI</label>
+            <code id="dash-uri" class="small"></code>
+          </div>
+        </div>
+
+        <div class="qr-section">
+          <h3 data-i18n="mosiac.dashboard_share_title">Share Your Identity</h3>
+          <div id="qr-container" class="qr-container">
+            <div class="spinner"></div>
+          </div>
+          <p class="hint" data-i18n="mosiac.dashboard_share_hint">Scan this QR code with another Mosiac user to connect.</p>
+        </div>
+
+        <div class="scan-section">
+          <h3 data-i18n="mosiac.dashboard_add_contact">Add a Contact</h3>
+          <div class="input-group">
+            <input type="text" id="scan-input" data-i18n-placeholder="mosiac.dashboard_add_placeholder" placeholder="Paste a mosiac:// URI or Base64URL pubkey">
+            <button id="btn-scan" class="btn btn-secondary" data-i18n="mosiac.dashboard_add_btn">Add Contact</button>
+          </div>
+          <div id="scan-result" class="hidden"></div>
+        </div>
+
+        <div class="contacts-section">
+          <h3><span data-i18n="mosiac.dashboard_contacts">Contacts</span> (<span id="contact-count">0</span>)</h3>
+          <div id="contact-list" class="contact-list"></div>
+        </div>
+
+        <div class="sign-section">
+          <h3 data-i18n="mosiac.dashboard_signing_title">Test Signing</h3>
+          <div class="input-group">
+            <input type="text" id="sign-input" value='{"hello":"world"}' placeholder='{"key": "value"}'>
+            <button id="btn-sign" class="btn btn-secondary" data-i18n="mosiac.dashboard_sign_btn">Sign</button>
+          </div>
+          <div id="sign-result" class="hidden">
+            <label data-i18n="mosiac.dashboard_signature">Signature</label>
+            <code id="sign-signature" class="small"></code>
+            <button id="btn-verify" class="btn btn-ghost" data-i18n="mosiac.dashboard_verify_btn">Verify</button>
+            <div id="verify-result" class="hidden"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Existing identities list -->
+    <section id="existing-identities" class="view">
+      <div class="card">
+        <h2 data-i18n="mosiac.existing_title">Existing Identities</h2>
+        <div id="identities-list"></div>
+        <button id="btn-back-splash" class="btn btn-ghost" data-i18n="mosiac.existing_back">Back</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span data-i18n="mosiac.footer_version">Mosiac v0.1.0 — Identity Layer</span>
+    <span class="footer-status" id="conn-status" data-i18n="mosiac.footer_disconnected">disconnected</span>
+  </footer>
+
+  <script src="/i18n/mosiac-i18n.js"></script>
+  <script type="module" src="/app-identity.js"></script>
+</body>
+</html>

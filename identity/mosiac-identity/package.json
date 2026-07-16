@@ -1,0 +1,25 @@
+{
+  "name": "mosiac-identity",
+  "version": "0.1.0",
+  "description": "Mosiac identity service — Ed25519 keys, WebAuthn passkeys, QR contact exchange. Runs everywhere.",
+  "license": "AGPL-3.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "quickstart": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "qrcode": "^1.5.4",
+    "@simplewebauthn/server": "^9.0.0",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.7.0",
+    "sql.js": "^1.11.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,22 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: casdoor
+  namespace: auth
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: casdoor
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: casdoor-postgres
+  namespace: auth
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: casdoor-postgres
+      app.kubernetes.io/component: database

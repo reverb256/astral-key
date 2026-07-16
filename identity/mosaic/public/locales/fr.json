@@ -1,0 +1,249 @@
+{
+  "_meta": {
+    "locale": "fr",
+    "language": "Français",
+    "flag": "🇫🇷",
+    "direction": "ltr"
+  },
+  "auth": {
+    "tagline": "Chat privé, vos règles",
+    "tabs": {
+      "login": "Connexion",
+      "register": "Inscription"
+    },
+    "login": {
+      "username_label": "Nom d'utilisateur",
+      "password_label": "Mot de passe",
+      "submit": "Connexion",
+      "forgot_password": "Mot de passe oublié ?",
+      "locked_out": "Verrouillé ? Récupération admin",
+      "admin_recover_hint": "Entrez vos identifiants admin ci-dessus et cliquez sur Récupérer",
+      "admin_recover_btn": "Récupérer l'accès admin"
+    },
+    "register": {
+      "username_label": "Nom d'utilisateur",
+      "username_hint": "3-20 caractères, lettres/chiffres/traits de soulignement",
+      "password_label": "Mot de passe",
+      "password_hint": "Minimum 8 caractères",
+      "confirm_label": "Confirmer le mot de passe",
+      "submit": "Créer un compte"
+    },
+    "sso": {
+      "instruction": "Inscrivez-vous en utilisant votre compte d'un autre serveur Haven. Votre nom d'utilisateur et votre photo de profil seront importés.",
+      "server_label": "Votre serveur Haven",
+      "server_hint": "Entrez l'adresse du serveur Haven sur lequel vous avez déjà un compte",
+      "connect": "Connecter",
+      "password_label": "Définir un mot de passe pour ce serveur",
+      "password_hint": "Requis pour le chiffrement. Minimum 8 caractères.",
+      "confirm_label": "Confirmer le mot de passe",
+      "register": "Créer un compte",
+      "back": "← Recommencer",
+      "imported_from": "Importé depuis votre serveur d'origine"
+    },
+    "totp": {
+      "instruction": "🔐 Entrez le code à 6 chiffres de votre application d'authentification",
+      "code_label": "Code d'authentification",
+      "submit": "Vérifier",
+      "use_backup": "Utiliser un code de secours",
+      "use_authenticator": "Utiliser le code de l'authentificateur",
+      "back": "← Retour à la connexion"
+    },
+    "forced_change": {
+      "instruction": "🔒 Un administrateur a réinitialisé votre mot de passe. Définissez-en un nouveau pour continuer.",
+      "new_password_label": "Nouveau mot de passe",
+      "new_password_hint": "Minimum 8 caractères",
+      "confirm_password_label": "Confirmer le nouveau mot de passe",
+      "recall_summary": "Je me souviens de mon mot de passe d'origine (préserver mes messages privés)",
+      "recall_hint": "Entrez votre mot de passe d'origine ci-dessous. S'il correspond, la réinitialisation est annulée et vous vous connectez normalement.",
+      "old_password_label": "Mot de passe d'origine",
+      "submit": "Continuer"
+    },
+    "recover": {
+      "instruction": "🔑 Réinitialiser le mot de passe avec un code de récupération",
+      "warning": "⚠️ Cela <strong>effacera définitivement vos clés de chiffrement</strong>. Tout l'historique des messages chiffrés deviendra illisible.",
+      "username_label": "Nom d'utilisateur",
+      "code_label": "Code de récupération",
+      "new_password_label": "Nouveau mot de passe",
+      "new_password_hint": "Minimum 8 caractères",
+      "confirm_label": "Confirmer le nouveau mot de passe",
+      "submit": "Réinitialiser le mot de passe",
+      "back": "← Retour à la connexion"
+    },
+    "eula": {
+      "age_confirm": "Je confirme que j'ai <strong>18 ans ou plus</strong> (ou l'âge de la majorité légale dans ma juridiction)",
+      "tos_confirm": "J'ai lu et j'accepte les <a href=\"#\" id=\"eula-link\">Conditions d'utilisation &amp; Décharge de responsabilité</a>",
+      "decline": "Refuser",
+      "accept": "J'accepte"
+    },
+    "errors": {
+      "fill_all_fields": "Remplissez tous les champs",
+      "all_fields_required": "Tous les champs sont requis",
+      "login_failed": "Échec de la connexion",
+      "registration_failed": "Échec de l'inscription",
+      "recovery_failed": "Échec de la récupération",
+      "verification_failed": "Échec de la vérification",
+      "connection_error": "Erreur de connexion — le serveur est-il en marche ?",
+      "passwords_no_match": "Les mots de passe ne correspondent pas",
+      "password_too_short": "Le mot de passe doit contenir au moins 8 caractères",
+      "must_be_18": "Vous devez confirmer que vous avez 18 ans ou plus",
+      "must_accept_tos": "Vous devez accepter les Conditions d'utilisation",
+      "enter_admin_credentials": "Entrez d'abord votre nom d'utilisateur et mot de passe admin",
+      "enter_auth_code": "Entrez votre code d'authentification",
+      "session_expired": "Session expirée — veuillez vous reconnecter",
+      "password_reset_success": "Mot de passe réinitialisé. Vous pouvez maintenant vous connecter avec votre nouveau mot de passe."
+    }
+  },
+  "app": {
+    "brand": "HAVEN",
+    "sidebar": {
+      "servers": "Serveurs",
+      "join_channel": "Rejoindre un salon",
+      "join_placeholder": "Entrez le code...",
+      "join_btn": "Rejoindre",
+      "create_channel": "Créer un salon",
+      "channel_name_placeholder": "Nom du salon...",
+      "private_channel": "Privé",
+      "private_hint": "(sur invitation)",
+      "temporary_channel": "Temporaire",
+      "temporary_hint": "(suppression automatique)",
+      "add_all_members": "Ajouter tous les membres",
+      "add_all_hint": "(tout le monde rejoint automatiquement)",
+      "hours": "heures",
+      "channels": "Salons",
+      "direct_messages": "Messages directs",
+      "add_server": "Ajouter un serveur",
+      "manage_servers": "Gérer les serveurs",
+      "this_server": "Ce serveur"
+    },
+    "actions": {
+      "logout": "Déconnexion",
+      "change_display_name": "Changer le nom d'affichage",
+      "close_sidebar": "Fermer la barre latérale",
+      "message_actions": "Actions du message",
+      "organize_channels": "Organiser les salons",
+      "settings": "Paramètres",
+      "drag_to_resize": "Glisser pour redimensionner",
+      "toggle_members_panel": "Afficher/Masquer le panneau des membres"
+    },
+    "messages": {
+      "edited": "(modifié)",
+      "edited_at": "Modifié le {{date}}",
+      "placeholder": "Tapez un message...",
+      "placeholder_short": "Message...",
+      "unknown_user": "Inconnu"
+    },
+    "profile": {
+      "online": "En ligne",
+      "offline": "Hors ligne",
+      "away": "Absent",
+      "dnd": "Ne pas déranger",
+      "invisible": "Invisible",
+      "set_status": "Définir le statut",
+      "custom_status_placeholder": "Statut personnalisé..."
+    }
+  },
+  "header": {
+    "select_channel": "Sélectionnez un salon",
+    "mobile_menu": "Menu",
+    "channel_code": "Code du salon",
+    "search_placeholder": "Rechercher... from:user in:#salon has:image",
+    "results": "Résultats",
+    "pinned_count": "Messages épinglés",
+    "cancel_reply": "Annuler la réponse",
+    "gif_search_placeholder": "Rechercher GIPHY...",
+    "powered_by_giphy": "Propulsé par GIPHY",
+    "messages": {
+      "user_joined": "{{name}} a rejoint le salon",
+      "user_renamed": "{{oldName}} s'appelle maintenant {{newName}}"
+    }
+  },
+  "channels": {
+    "mute_channel": "Masquer le salon",
+    "unmute_channel": "Afficher le salon",
+    "no_channels_yet": "Aucun salon pour l'instant",
+    "organize_channels": "Organiser les salons"
+  },
+  "voice": {
+    "join": "🎤 Rejoindre le vocal",
+    "leave": "Quitter le vocal",
+    "mute": "Muet",
+    "unmute": "Activer le micro",
+    "deafen": "Rendre sourd",
+    "undeafen": "Activer le son",
+    "screen_share": "Partager l'écran",
+    "stop_share": "Arrêter le partage",
+    "joined": "Vous avez rejoint le salon vocal",
+    "left": "Vous avez quitté le salon vocal",
+    "disconnect": "Déconnexion"
+  },
+  "footer": {
+    "connected": "connecté",
+    "disconnected": "déconnecté"
+  },
+  "mosaic": {
+    "page_title": "Mosaic — Identité",
+    "brand": "⍟ Mosaic",
+    "phase_badge": "Phase 1 : Couche d'identité",
+    "splash_welcome": "Bienvenue sur Mosaic",
+    "splash_subtitle": "Une plateforme sociale décentralisée basée sur les identités Ed25519.",
+    "splash_create_identity": "Créer une identité avec une clé d'accès",
+    "splash_login_passkey": "Connexion avec clé d'accès",
+    "splash_existing_question": "Vous avez déjà une identité ?",
+    "splash_show_existing": "Voir les identités existantes",
+    "register_title": "Créer votre identité",
+    "register_generating": "Nous générons votre paire de clés Ed25519 et préparons l'enregistrement de la clé d'accès.",
+    "register_created": "Identité créée !",
+    "register_public_key": "Clé publique",
+    "register_fingerprint": "Empreinte",
+    "register_uri": "URI",
+    "register_register_passkey_hint": "Enregistrez maintenant une clé d'accès pour protéger cette identité.",
+    "register_register_passkey_btn": "Enregistrer la clé d'accès",
+    "register_passkey_done_title": "Clé d'accès enregistrée !",
+    "register_passkey_done_text": "Votre identité est maintenant sécurisée par une clé d'accès.",
+    "register_go_dashboard": "Aller au tableau de bord",
+    "login_title": "Connexion avec clé d'accès",
+    "login_subtitle": "Utilisez votre clé d'accès enregistrée pour vous authentifier.",
+    "login_auth_btn": "S'authentifier avec la clé d'accès",
+    "login_error": "Échec de la connexion",
+    "dashboard_title": "Votre identité",
+    "dashboard_logout": "Déconnexion",
+    "dashboard_public_key": "Clé publique",
+    "dashboard_fingerprint": "Empreinte",
+    "dashboard_hex": "Hex",
+    "dashboard_uri": "URI",
+    "dashboard_share_title": "Partager votre identité",
+    "dashboard_share_hint": "Scannez ce code QR avec un autre utilisateur Mosaic pour vous connecter.",
+    "dashboard_add_contact": "Ajouter un contact",
+    "dashboard_add_placeholder": "Collez une URI mosaic:// ou une clé publique Base64URL",
+    "dashboard_add_btn": "Ajouter",
+    "dashboard_contacts": "Contacts",
+    "dashboard_signing_title": "Signature de test",
+    "dashboard_sign_btn": "Signer",
+    "dashboard_verify_btn": "Vérifier",
+    "dashboard_signature": "Signature",
+    "existing_title": "Identités existantes",
+    "existing_back": "Retour",
+    "footer_version": "Mosaic v0.1.0 — Couche d'identité",
+    "footer_connected": "connecté",
+    "footer_disconnected": "déconnecté",
+    "errors": {
+      "registration_failed": "Échec de l'inscription : {{message}}",
+      "passkey_cancelled": "Enregistrement de la clé d'accès annulé",
+      "passkey_failed": "Échec de l'enregistrement de la clé d'accès : {{message}}",
+      "auth_cancelled": "Authentification annulée.",
+      "login_failed": "Échec de la connexion : {{message}}",
+      "qr_unavailable": "QR indisponible",
+      "no_contacts": "Aucun contact pour l'instant. Scannez un code QR pour en ajouter un.",
+      "contact_unknown": "Inconnu",
+      "contact_added": "✓ Contact ajouté : {{fingerprint}}",
+      "signing_failed": "Échec de la signature : {{message}}",
+      "verified_ok": "✓ Signature vérifiée",
+      "verified_bad": "✗ Signature invalide",
+      "no_identities": "Aucune identité sur cet appareil.",
+      "identity_unnamed": "Sans nom",
+      "identity_current": "✓ actuelle",
+      "identity_failed_load": "Échec du chargement",
+      "load_failed": "Échec du chargement : {{message}}"
+    }
+  }
+}

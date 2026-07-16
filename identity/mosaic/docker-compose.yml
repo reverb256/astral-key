@@ -1,0 +1,35 @@
+# ── Haven Docker Compose ─────────────────────────────────
+# Quick start:  docker compose up -d
+# Stop:         docker compose down
+# View logs:    docker compose logs -f haven
+# Update:       docker compose pull && docker compose up -d --force-recreate
+# Shell:        docker compose exec haven sh
+# ─────────────────────────────────────────────────────────
+
+services:
+  haven:
+    image: ghcr.io/ancsemi/haven:latest
+    # build: .                    # Uncomment to build from source instead of using the pre-built image
+    container_name: haven
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"    # Main HTTPS port
+      - "${REDIRECT_PORT:-3001}:${REDIRECT_PORT:-3001}"  # HTTP → HTTPS redirect
+    volumes:
+      - haven_data:/data
+      # ── Or use a local folder instead (good for NAS / Synology): ──
+      # - ./haven-data:/data
+    environment:
+      - PORT=${PORT:-3000}
+      - HOST=0.0.0.0
+      # - SERVER_NAME=My Haven           # Name shown in the UI
+      # - ADMIN_USERNAME=admin            # First account to register becomes admin
+      # - GIPHY_API_KEY=                  # Optional: enable GIF search
+      # - VAPID_EMAIL=mailto:you@example  # Optional: email for push notifications
+      # - TURN_URL=turn:your-server:3478  # Optional: TURN relay for voice over internet
+      # - TURN_SECRET=your-secret         # Shared secret (coturn --use-auth-secret)
+    # Uncomment to load settings from a .env file:
+    # env_file: .env
+    restart: unless-stopped
+
+volumes:
+  haven_data:
