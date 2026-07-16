@@ -1,3 +1,11 @@
 # Agent / editor backups
 *.bak
 *.bak.*
+
+# Dependencies / build artifacts
+node_modules/
+.venv/
+venv/
+dist/
+build/
+*.tsbuildinfo
