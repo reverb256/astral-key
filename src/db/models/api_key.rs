@@ -197,6 +197,7 @@ impl ApiKey {
     /// Extracts the prefix from the full key (e.g. `ak_prod_`), queries for
     /// non-revoked keys with that prefix, and returns the first one whose hash
     /// verifies against the provided key.
+    #[allow(dead_code)]
     pub async fn find_by_prefix_and_verify(pool: &SqlitePool, key: &str) -> Result<Option<Self>> {
         let prefix = crate::auth::keys::hashing::extract_prefix(key);
 
@@ -237,6 +238,7 @@ impl ApiKey {
     }
 
     /// Update the `last_used_at` timestamp to now.
+    #[allow(dead_code)]
     pub async fn update_last_used(&self, pool: &SqlitePool) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         sqlx::query("UPDATE api_keys SET last_used_at = ?1 WHERE id = ?2")

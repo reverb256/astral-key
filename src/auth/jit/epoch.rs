@@ -17,6 +17,8 @@
 //! The journal is loaded on startup and maintained in memory for O(1) lookups.
 //! Persistence ensures tombstones survive process restarts.
 
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
@@ -194,7 +196,7 @@ impl TombstoneJournal {
     ///
     /// This is an O(1) hash-set lookup against the in-memory state.
     pub fn is_revoked(&self, token_id: &str) -> bool {
-        self.revoked.read().map_or(false, |r| r.contains(token_id))
+        self.revoked.read().is_ok_and(|r| r.contains(token_id))
     }
 
     /// Return the number of revoked tokens tracked in memory.

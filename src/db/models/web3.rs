@@ -112,6 +112,7 @@ impl Web3Wallet {
     }
 
     /// Get all wallets for a user
+    #[allow(dead_code)]
     pub async fn get_by_user(pool: &SqlitePool, user_id: Uuid) -> Result<Vec<Self>> {
         let rows =
             sqlx::query("SELECT * FROM web3_wallets WHERE user_id = ?1 ORDER BY created_at DESC")
@@ -160,6 +161,7 @@ impl Web3Wallet {
     }
 
     /// Delete wallet
+    #[allow(dead_code)]
     pub async fn delete(&self, pool: &SqlitePool) -> Result<()> {
         sqlx::query("DELETE FROM web3_wallets WHERE id = ?1")
             .bind(self.id.to_string())

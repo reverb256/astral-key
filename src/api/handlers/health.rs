@@ -6,6 +6,7 @@ use serde_json::json;
 use crate::state::AppState;
 
 /// Health check response
+#[allow(dead_code)]
 pub async fn health() -> Json<serde_json::Value> {
     Json(json!({
         "status": "healthy",
@@ -14,6 +15,7 @@ pub async fn health() -> Json<serde_json::Value> {
 }
 
 /// Readiness check response
+#[allow(dead_code)]
 pub async fn ready(State(state): State<AppState>) -> Json<serde_json::Value> {
     let db_ok = state.db.health_check().await.is_ok();
     Json(json!({
