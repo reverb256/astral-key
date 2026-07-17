@@ -198,13 +198,10 @@ pub async fn credentials(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<CredentialInfo>>> {
-    // TODO: Get user credentials from database
     let pool = state.db.inner();
 
-    // For now, return empty list
     let credentials = crate::db::models::Fido2Credential::get_by_user(pool, auth_user.user_id)
-        .await
-        .unwrap_or_default();
+        .await?;
 
     let credential_infos: Vec<CredentialInfo> = credentials
         .into_iter()

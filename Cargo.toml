@@ -11,7 +11,7 @@ categories = ["authentication", "web-programming"]
 rust-version = "1.75"
 
 [workspace]
-members = ["."]
+members = [".", "crates/mosaic-identity", "crates/mosaic-client", "crates/mosaic-bridge-atproto", "crates/mosaic-bridge-buzz", "crates/mosaic-bridge-matrix", "crates/mosaic-bridge-irc", "crates/mosaic-bridge-activitypub", "crates/mosaic-bridge-telegram", "crates/mosaic-bridge-discord"]
 
 [dependencies]
 # Core async runtime

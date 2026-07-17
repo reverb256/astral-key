@@ -1,0 +1,15 @@
+[package]
+name = "mosaic-client"
+version = "0.1.0"
+description = "Shared Mosaic client library — HTTP client for MIS REST API and shared types for transport bridges"
+edition = "2021"
+license = "MIT"
+rust-version = "1.75"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
+thiserror = "1.0"
+tracing = "0.1"
+url = "2.5"

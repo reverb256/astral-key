@@ -172,6 +172,7 @@ impl Fido2Credential {
     }
 
     /// Update credential name
+    #[allow(dead_code)]
     pub async fn update_name(&self, pool: &SqlitePool, name: &str) -> Result<()> {
         sqlx::query("UPDATE fido2_credentials SET name = ?1 WHERE id = ?2")
             .bind(name)

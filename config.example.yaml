@@ -64,6 +64,21 @@ jwt:
   # Not currently configurable via env — edit src/config.rs to change.
   refresh_token_ttl: 604800
 
+# ── JIT Capability Tokens (Optional) ───────────────────────────────────────
+jit:
+  # Hex-encoded 32-byte Ed25519 private key (64 hex chars).
+  # When set, enables the POST /auth/jit/mint endpoint.
+  # Env: JIT_ISSUER_KEY (no default — optional, omits minting endpoint)
+  issuer_key_hex: ""
+
+  # Issuer identifier embedded in every minted token.
+  # Env: JIT_ISSUER_ID | Default: "ak:issuer:01"
+  issuer_id: "ak:issuer:01"
+
+  # Default TTL in seconds for minted JIT tokens (3600 = 1 hour).
+  # Env: JIT_DEFAULT_TTL | Default: 3600
+  default_ttl: 3600
+
 # ── OAuth (Optional) ────────────────────────────────────────────────────────
 oauth:
   # Base URL used to build redirect URIs and state parameters.

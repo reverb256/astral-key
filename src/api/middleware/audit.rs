@@ -62,7 +62,7 @@ fn client_ip(headers: &HeaderMap) -> String {
 /// The event is written to **stdout** so that external log shippers
 /// (Filebeat, Vector, journald, etc.) can collect and forward it.
 pub async fn audit_middleware(request: Request, next: Next) -> Response {
-    let start = SystemTime::now();
+    let _start = SystemTime::now();
     let method = request.method().clone();
     let uri = request.uri().clone();
     let headers = request.headers().clone();

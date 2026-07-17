@@ -35,6 +35,7 @@ pub async fn verify_siwe_signature(
 
 /// Parsed SIWE message
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct SiweMessage {
     pub domain: String,
     pub address: String,

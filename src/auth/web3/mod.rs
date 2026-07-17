@@ -12,6 +12,7 @@ pub use nonce::{
 use crate::error::Result;
 
 /// Web3 service
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct Web3Service {
     _rpc_url: String,
@@ -20,6 +21,7 @@ pub struct Web3Service {
 
 impl Web3Service {
     /// Create a new Web3 service
+    #[allow(dead_code)]
     pub async fn new(rpc_url: &str, chain_id: u64) -> Result<Self> {
         Ok(Self {
             _rpc_url: rpc_url.to_string(),
@@ -28,6 +30,7 @@ impl Web3Service {
     }
 
     /// Get chain ID
+    #[allow(dead_code)]
     pub fn chain_id(&self) -> u64 {
         self.chain_id
     }

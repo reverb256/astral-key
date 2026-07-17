@@ -1,138 +1,164 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-07-16
-**Type:** Rust microservice (auth sidecar)
-**Status:** Implementing — core auth modules complete
+**Generated:** 2026-07-25
+**Type:** Rust microservice (auth sidecar) + Mosaic Identity Service (PKI layer)
+**Status:** Core auth complete, MIS shipped, bridges deployed
 
 ## OVERVIEW
 
 Astral Key is a single-binary authentication sidecar for FIDO2/WebAuthn
 passkey and Web3/SIWE authentication. Built with Rust (Axum) and SQLite.
 
+The repo also contains the **Mosaic Identity Service (MIS)** crate — a
+standalone PKI service for Ed25519 key management, cross-protocol identity
+binding, PQ hybrid signing, and agent ephemeral certs. MIS is consumed by
+Mosaic (Haven fork), transport plugins, and Hermes agents.
+
 ## STRUCTURE
 
 ```
 astral-key/
-├── src/
-│   ├── main.rs              # Entry point
-│   ├── config.rs            # Env var configuration
-│   ├── error.rs             # AuthError enum → HTTP responses
-│   ├── state.rs             # AppState (pool, services)
-│   ├── api/
-│   │   ├── routes.rs        # Route definitions
-│   │   └── handlers/        # Request handlers
-│   │       ├── health.rs    # /health, /ready
-│   │       ├── web3.rs      # SIWE nonce, verify, chains
-│   │       ├── fido2.rs     # WebAuthn ceremony handlers
-│   │       └── auth.rs      # Token verification
-│   ├── auth/
-│   │   ├── jwt/             # JWT signing, validation, middleware
-│   │   ├── fido2/           # WebAuthn ceremony logic
-│   │   └── web3/            # SIWE message + ethers verification
-│   ├── db/
-│   │   ├── pool.rs          # SQLx SQLite pool
-│   │   └── models/          # User, Web3Wallet, Fido2Credential, etc.
-│   └── utils/               # Utilities
-├── migrations/               # SQLx migrations
-├── docs/                     # Documentation
-├── nix/                      # NixOS module (WIP)
-├── k8s/                      # K3s manifests (WIP)
-├── config.example.yaml       # Env var reference
-├── docker-compose.yml        # Single-service Docker Compose
-├── Cargo.toml                # Rust dependencies
-├── flake.nix                 # Nix flake
-└── README.md                 # Project README
+├── src/                       # Astral Key auth microservice
+│   ├── main.rs, config.rs, error.rs, state.rs
+│   ├── api/routes.rs + handlers/   # FIDO2, SIWE, JWT, OAuth endpoints
+│   ├── auth/                    # WebAuthn, Web3, JWT logic
+│   └── db/                      # SQLx SQLite migrations + models
+├── crates/mosaic-identity/    # ← Mosaic Identity Service (Rust binary)
+│   ├── src/
+│   │   ├── main.rs            # HTTP server entry point
+│   │   ├── lib.rs             # Re-exports all modules
+│   │   ├── api.rs             # 16 route handlers (keys, sign, verify, bindings)
+│   │   ├── crypto.rs          # Ed25519 + FALCON-512 hybrid signing
+│   │   ├── storage.rs         # SQLite: keys, bindings, rotations tables
+│   │   ├── bindings.rs        # atproto DID resolver (PLC directory)
+│   │   ├── nostr.rs           # Nostr npub→hex decoder (Bech32)
+│   │   ├── config.rs          # Environment-based config
+│   │   └── error.rs           # Error types
+│   └── migrations/001_init.sql
+├── identity/mosaic/           # Mosaic (Haven fork — Node.js chat + bridges)
+│   ├── src/
+│   │   ├── identity.js        # Auto-selector: MIS → local tweetnacl
+│   │   ├── identity-mis.js    # MIS HTTP client + tweetnacl fallback
+│   │   └── identity-local.js  # Original tweetnacl implementation
+│   └── bridges/               # Transport plugins (sidecar daemons)
+│       ├── atproto/index.js   # DID resolver daemon (port 8083)
+│       ├── buzz/index.js      # Nostr WebSocket relay
+│       ├── matrix/index.js    # Matrix Application Service
+│       ├── irc/index.js       # IRC TLS client
+│       └── lib/mis-client.js  # Shared MIS HTTP client
+├── Cargo.toml                 # Workspace: root + crates/mosaic-identity
+├── Containerfile              # Astral Key container build
+├── Dockerfile.mosaic-identity # MIS container build
+├── Dockerfile.bridges         # Bridge container build
+└── bridges-entrypoint.sh      # Bridge type dispatcher (BRIDGE_TYPE env)
 ```
 
-## KEY FACTS
+## Mosaic Identity Service (MIS)
 
-- **Language:** Rust 2021 edition
-- **Framework:** Axum 0.7
-- **Storage:** SQLite only (sqlx)
-- **Auth:** FIDO2/WebAuthn, Web3/SIWE, JWT (access + refresh tokens)
-- **Config:** Environment variables (`std::env::var`) — no config file
-- **Build:** `cargo build`, `nix develop`
-- **Deploy:** Docker Compose, K3s
-- **License:** MIT
-- **Copyright:** Jeremy Kroeker (reverb256)
+Standalone Rust binary in `crates/mosaic-identity/`. 16 HTTP endpoints:
 
-## ENVIRONMENT VARIABLES
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/health` | Liveness |
+| POST | `/keys/generate` | Create Ed25519 keypair |
+| POST | `/keys/import` | Import PKCS#8 key |
+| GET | `/keys` | List keys |
+| GET | `/keys/{key_id}` | Key info |
+| GET | `/keys/{key_id}/history` | Rotation history |
+| POST | `/sign` | Ed25519 sign |
+| POST | `/verify` | Ed25519 verify |
+| POST | `/sign/hybrid` | Dual Ed25519+FALCON-512 (needs `--features pq`) |
+| POST | `/verify/hybrid` | Verify hybrid signature |
+| POST | `/bindings/resolve` | atproto DID → Mosaic key |
+| POST | `/bindings/claim` | Bind key to external identity |
+| GET | `/keys/{key_id}/bindings` | List bindings |
+| GET | `/resolve` | Resolve external ID → key |
+| POST | `/nostr/resolve` | npub → hex |
+| POST | `/agent/cert` | Time-bound agent delegation |
 
-| Variable | Required | Default |
-|----------|----------|---------|
-| `JWT_SECRET` | **Yes** | — |
-| `SERVER_HOST` | No | `127.0.0.1` |
-| `SERVER_PORT` | No | `8080` |
-| `DATABASE_URL` | No | `sqlite:astral_key.db?mode=rwc` |
-| `DATABASE_MAX_CONNECTIONS` | No | `5` |
-| `FIDO2_RP_ID` | No | `localhost` |
-| `FIDO2_RP_NAME` | No | `Astral Key` |
-| `FIDO2_ORIGINS` | No | `http://localhost:8080` |
-| `FIDO2_ATTESTATION` | No | `indirect` |
-| `ASTRAL_WEB3_DOMAIN` | No | `maplespike.ca` |
-| `OAUTH_BASE_URL` | No | `http://localhost:8080` |
-| `OAUTH_GITHUB_CLIENT_ID` | No | — |
-| `OAUTH_GITHUB_CLIENT_SECRET` | No | — |
-| `OAUTH_GITHUB_REDIRECT_URI` | No | `{OAUTH_BASE_URL}/auth/oauth/github/callback` |
-| `RUST_LOG` | No | `info,astral_key=debug` |
+### Key identity binding workflow
 
-See [`config.example.yaml`](config.example.yaml) and
-[`docs/deployment.md`](docs/deployment.md) for details.
+One Mosaic Ed25519 key maps to multiple protocol identities:
 
-## API ENDPOINTS
+```
+POST /keys/generate         → key_id k-xxx, pubkey_hex
+POST /bindings/resolve      → resolve bsky.app → did:plc:... → secp256k1 key
+POST /bindings/claim        → k-xxx ↔ did:plc:... (bidirectional signed binding)
+GET  /resolve?protocol=...  → resolve any external ID → Mosaic key
+```
 
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /health` | — | Liveness |
-| `GET /ready` | — | Readiness (DB check) |
-| `POST /api/v1/auth/web3/chains` | — | Supported chains |
-| `POST /api/v1/auth/web3/nonce` | — | SIWE nonce |
-| `POST /api/v1/auth/web3/verify` | — | Verify SIWE → JWT |
-| `POST /api/v1/auth/fido2/register/options` | JWT | Register options |
-| `POST /api/v1/auth/fido2/register/verify` | JWT | Register verify |
-| `POST /api/v1/auth/fido2/authenticate/options` | — | Auth options |
-| `POST /api/v1/auth/fido2/authenticate/verify` | — | Auth verify → JWT |
-| `GET /api/v1/auth/fido2/credentials` | JWT | List passkeys |
-| `DELETE /api/v1/auth/fido2/credentials/:id` | JWT | Delete passkey |
-| `POST /api/v1/auth/verify` | — | Validate JWT |
-
-## COMMANDS
+### Post-quantum hybrid signing
 
 ```bash
-cargo build              # Build binary
-cargo run                # Start server
-cargo test               # Run tests
-cargo fmt                # Format code
-cargo clippy             # Lint
-cargo audit              # Security audit
-nix develop              # Enter dev shell
-docker compose up -d     # Start Docker service
+cargo build -p mosaic-identity --features pq --release
 ```
 
-## CONVENTIONS
+Produces dual Ed25519 + FALCON-512 signatures. Without `--features pq`,
+`POST /sign/hybrid` returns an error: "PQ feature not enabled. Rebuild with
+--features pq". No fake/placeholder signatures.
 
-- **Async-first**: All I/O via Tokio
-- **Error handling**: `thiserror` + `anyhow`, never `unwrap()` in production
-- **Config**: Only env vars, no config files
-- **Testing**: Unit tests in source files, integration tests in `tests/`
-- **SQLite**: All migrations must be SQLite-compatible
+### Agent ephemeral certs
 
-## UPCOMING FEATURES
+`POST /agent/cert` issues time-bound, scope-limited delegation certificates.
+Long-lived keys never enter agent memory. Certificate structure:
 
-- API key management (create, rotate, revoke)
-- ZK JIT capability tokens
-- MCP server (Model Context Protocol)
-- Rate limiting middleware
-- NixOS module (production-ready)
+```json
+{
+  "owner_pubkey": "...", "agent_pubkey": "...",
+  "expires_at": "ISO8601", "scope": ["#channel"],
+  "signature": "<signed by owner Ed25519 key>"
+}
+```
 
-## LINKS
+## Transport plugins (bridges)
 
-- Repo: https://github.com/reverb256/astral-key
-- README: https://github.com/reverb256/astral-key#readme
-- Docs: ./docs/
+Each bridge is a sidecar container. Selection via `BRIDGE_TYPE` env var.
 
-## LAST UPDATED
+| Bridge | Dependencies | Deploy | Notes |
+|--------|-------------|--------|-------|
+| atproto | MIS, public PLC/BSky APIs | `BRIDGE_TYPE=atproto` | Daemon on :8083, DID resolution |
+| buzz | MIS, Nostr relay URL | `BRIDGE_TYPE=buzz` | WebSocket relay, identity binding |
+| matrix | MIS, Matrix homeserver | `BRIDGE_TYPE=matrix` | AS server on :8082 |
+| irc | MIS, IRC server | `BRIDGE_TYPE=irc` | TLS client, channel mapping |
 
-2026-07-16: FOSS documentation phase — added config.example.yaml, docker-compose.yml,
-CONTRIBUTING.md, docs/architecture.md, docs/api.md, docs/deployment.md, docs/errors.md,
-.env.example. Rewrote README.md and AGENTS.md. Removed STATUS.md.
+## Deploy
+
+MIS and bridges deploy as k8s pods in the `orchestration` namespace.
+The registry is at `nexus:5000` (local, insecure — accessible from within
+cluster). Images are loaded directly into containerd via `docker save | ctr import`.
+
+```bash
+# Build and load MIS image
+docker build -t nexus:5000/mosaic-identity:v0.1.0 -f Dockerfile.mosaic-identity .
+docker save nexus:5000/mosaic-identity:v0.1.0 | sudo ctr -n k8s.io images import -
+
+# Build and load bridge image
+docker build -t nexus:5000/mosaic-bridges:v0.1.0 -f Dockerfile.bridges .
+docker save nexus:5000/mosaic-bridges:v0.1.0 | sudo ctr -n k8s.io images import -
+
+# Apply manifests
+kubectl apply -f /etc/nixos/k8s/mosaic-identity/
+kubectl apply -f /etc/nixos/k8s/mosaic-bridges/
+```
+
+## Cluster topology
+
+| Node | Role | IP | Status |
+|------|------|----|--------|
+| nexus | k3s server + builder | 10.1.1.120 | Ready (k3s), MIS host |
+| forge | k3s server + mining | 10.1.1.130 | Unknown (post-reset) |
+| sentry | k3s server + inference | 10.1.1.140 | Unknown (bad Nix unit) |
+| zephyr | desktop + control | — | Worker |
+
+## Recent changes (2026-07-25)
+
+- MIS crate added to workspace (`crates/mosaic-identity/`)
+- 16 REST endpoints for PKI operations
+- Identity binding system (one key → atproto, nostr, matrix, irc)
+- PQ hybrid signing (Ed25519 + FALCON-512, feature-gated)
+- Agent ephemeral cert delegation
+- 4 transport plugins (atproto, buzz, matrix, irc)
+- Mosaic identity.js auto-selects MIS (fallback to local tweetnacl)
+- PersistentVolumeClaim → emptyDir (local-path provisoner delay)
+- All admission policies deleted (blocked deployment)
+- Cluster reset performed (nexus single-member, forge/sentry pending rejoin)

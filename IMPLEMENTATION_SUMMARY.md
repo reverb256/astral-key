@@ -1,352 +1,229 @@
-# Astral Key - Implementation Summary
+# Astral Key — Implementation Summary
 
-**Date:** 2025-02-18
-**Status:** Production Ready (~95% Complete)
+**Date:** 2026-07-16
+**Status:** Post-v2 upgrade — core auth modules + extended capabilities complete
 
 ---
 
 ## Executive Summary
 
-Astral Key has been successfully implemented as a production-ready Web3 and FIDO2 authentication microservice. The project progressed from a ~5% prototype to a ~95% complete system with all core features implemented, tested, and documented.
+Astral Key is a single-binary authentication sidecar for FIDO2/WebAuthn passkey
+and Web3/SIWE authentication. Built with Rust (Axum 0.7) and backed entirely by
+**SQLite** — no PostgreSQL, no Redis, no external cache.
+
+A v2 upgrade added API key management, ZK JIT capability tokens, session
+management with refresh token rotation, Ed25519 identity/contacts, rate
+limiting, audit logging, and an MCP server. The project retains its zero-ops
+character: a single binary + a single SQLite file.
 
 ---
 
-## Completed Work
+## Current Architecture
 
-### 1. Web3 Authentication (100% Complete)
-
-**Implementation:**
-- ✅ Real Ethereum signature verification using ethers-rs
-- ✅ ECDSA signature recovery and address validation
-- ✅ SIWE message parsing (domain, chain_id, nonce, expiration)
-- ✅ Cryptographically secure nonce generation (32 bytes)
-- ✅ Redis-backed nonce storage with 15-minute TTL
-- ✅ Automatic user creation on first successful authentication
-- ✅ Multi-chain wallet support (Ethereum, Polygon, Arbitrum, Optimism, Goerli, Sepolia)
-
-**Key Files:**
-- `src/auth/web3/siwe.rs` - Full SIWE implementation with tests
-- `src/auth/web3/nonce.rs` - Nonce generation and storage
-- `src/api/handlers/web3.rs` - Complete Web3 API handlers
-
-### 2. FIDO2/WebAuthn Authentication (100% Complete)
-
-**Implementation:**
-- ✅ Registration challenge generation (WebAuthn ceremony)
-- ✅ Full cryptographic attestation verification (webauthn-rs)
-- ✅ Authentication challenge with credential lookup
-- ✅ Full cryptographic assertion signature verification (webauthn-rs)
-- ✅ Credential storage in PostgreSQL (Passkey serialization)
-- ✅ Counter tracking and usage timestamping
-- ✅ Challenge storage in Redis with TTL
-- ✅ Response type parsing and validation
-- ✅ User ID propagation through auth flow
-- ✅ State management for registration and authentication ceremonies
-- ✅ Challenge exclusion for existing credentials (prevent re-registration)
-
-**WebAuthn Integration:**
-- Uses `webauthn-rs` 0.5 with proper state serialization
-- Full `Passkey` serialization/deserialization for database storage
-- Complete attestation object verification during registration
-- Complete assertion signature verification during authentication
-- Proper counter tracking to prevent replay attacks
-- Redis-backed challenge state with TTL for security
-
-**Key Files:**
-- `src/auth/fido2/registration.rs` - Registration flow
-- `src/auth/fido2/authentication.rs` - Authentication flow
-- `src/auth/fido2/types.rs` - WebAuthn type definitions
-- `src/api/handlers/fido2.rs` - Complete FIDO2 API handlers
-
-### 3. JWT Authentication (100% Complete)
-
-**Implementation:**
-- ✅ Access token generation (15 minute TTL)
-- ✅ Refresh token generation (7 day TTL)
-- ✅ Token validation with kind checking (Access vs Refresh)
-- ✅ Token rotation on refresh
-- ✅ Redis-backed token blacklist
-- ✅ Custom claims with TokenKind enum
-- ✅ Axum extractor for protected routes
-
-**Key Files:**
-- `src/auth/jwt/mod.rs` - JWT service implementation
-- `src/auth/jwt/claims.rs` - Custom claims structure
-- `src/auth/jwt/middleware.rs` - Auth middleware with extractor
-
-### 4. Session Management (100% Complete)
-
-**Implementation:**
-- ✅ Token rotation with old token blacklisting
-- ✅ Session listing for authenticated users
-- ✅ Logout with token revocation
-- ✅ Per-session deletion
-- ✅ Database-backed sessions
-- ✅ Redis cache integration
-
-**Key Files:**
-- `src/api/handlers/session.rs` - Complete session handlers
-- `src/db/models/session.rs` - Session model with CRUD
-
-### 5. Database Layer (100% Complete)
-
-**Implementation:**
-- ✅ SQLx connection pool with health checks
-- ✅ Compile-time checked queries
-- ✅ Migration runner
-- ✅ Models: User, Web3Wallet, Fido2Credential, Session, Nonce
-- ✅ Proper foreign key relationships
-- ✅ Indexes for performance
-
-**Key Files:**
-- `src/db/pool.rs` - Database pool implementation
-- `src/db/models/` - All database models
-- `migrations/001_initial.sql` - Initial schema
-
-### 6. Cache Layer (100% Complete)
-
-**Implementation:**
-- ✅ Redis connection manager with health checks
-- ✅ Nonce storage with TTL
-- ✅ Token blacklist operations
-- ✅ Rate limiting operations
-- ✅ Session cache operations
-
-**Key Files:**
-- `src/cache/pool.rs` - Redis pool with all required methods
-- `src/cache/operations.rs` - High-level cache operations
-
-### 7. API Routing & Middleware (100% Complete)
-
-**Implementation:**
-- ✅ 18 API endpoints across 4 modules (Web3, FIDO2, Sessions, Users)
-- ✅ Public routes (login, nonce, chains)
-- ✅ Protected routes (registration, sessions, user management)
-- ✅ JWT authentication middleware
-- ✅ Request tracing middleware
-- ✅ CORS middleware (ready to enable)
-- ✅ Rate limiting middleware (ready to enable)
-
-**Key Files:**
-- `src/api/routes.rs` - Route definitions with middleware
-- `src/auth/jwt/middleware.rs` - JWT auth implementation
-
-### 8. Testing Infrastructure (100% Complete)
-
-**Implementation:**
-- ✅ Unit tests for JWT, Web3 SIWE, FIDO2 modules
-- ✅ Integration tests for all API endpoints
-- ✅ End-to-end test script (`scripts/test-e2e.sh`)
-- ✅ CI/CD pipeline with GitHub Actions
-- ✅ Comprehensive testing documentation
-
-**Key Files:**
-- `src/auth/jwt/tests.rs` - JWT unit tests
-- `src/auth/web3/siwe.rs` - SIWE tests
-- `tests/api_integration_tests.rs` - API integration tests
-- `scripts/test-e2e.sh` - E2E test script
-- `TESTING.md` - Testing guide
-- `.github/workflows/ci.yml` - CI/CD pipeline
-
-### 9. Production Deployment (100% Complete)
-
-**Implementation:**
-- ✅ Multi-stage Dockerfile for production builds
-- ✅ Production docker-compose with PostgreSQL, Redis, Vaultwarden, Nginx
-- ✅ NixOS module for declarative system configuration
-- ✅ GitHub Actions CI/CD with lint, test, build, and deploy stages
-- ✅ Health check endpoints
-
-**Key Files:**
-- `Dockerfile` - Production Docker image
-- `docker-compose.prod.yml` - Production stack
-- `nixos-module.nix` - NixOS service configuration
-- `.github/workflows/ci.yml` - CI/CD pipeline
-
-### 10. Documentation (100% Complete)
-
-**Implementation:**
-- ✅ Updated README.md with current status
-- ✅ STATUS.md tracking implementation progress
-- ✅ ROADMAP.md with phased implementation plan
-- ✅ CONTRIBUTING.md with development guidelines
-- ✅ TESTING.md with comprehensive testing guide
-- ✅ LICENSE (MIT)
-- ✅ Code comments and documentation
+| Layer | Technology |
+|-------|-----------|
+| **Runtime** | Tokio (async) |
+| **Web framework** | Axum 0.7 |
+| **Database** | SQLite 3 (sqlx 0.7) |
+| **FIDO2 / WebAuthn** | webauthn-rs 0.5 |
+| **Web3 / SIWE** | ethers-rs 2.0, siwe 0.6 |
+| **JWT** | jsonwebtoken 9.x (HMAC HS256) |
+| **API key hashing** | Argon2id (argon2 0.5) |
+| **JIT tokens** | Ed25519 (ed25519-dalek 2.x) |
+| **Deploy** | Docker Compose, K3s, Nix |
 
 ---
 
-## Architecture Highlights
+## Completed Modules
 
-**Technology Stack:**
-- Language: Rust 2021 Edition
-- Web Framework: Axum 0.7
-- Database: PostgreSQL 15 with SQLx
-- Cache: Redis 7
-- Crypto: ethers-rs (Web3), potential webauthn-rs (FIDO2)
-- Build: Nix flakes + Cargo
-- Testing: tokio-test, tarpaulin (coverage)
+### 1. Web3 / SIWE Authentication
 
-**Design Patterns:**
-- Repository pattern for database models
-- Service layer for business logic
-- Middleware for cross-cutting concerns
-- Extractor pattern for authenticated state
-- Error handling with thiserror + anyhow
+- SIWE message parsing (EIP-4361) with field validation
+- ECDSA signature recovery via ethers-rs
+- Domain spoofing protection — only the configured `ASTRAL_WEB3_DOMAIN` is
+  accepted; client-supplied domains are filtered
+- Cryptographically secure nonce generation (32 bytes, hex-encoded)
+- SQLite-backed nonce store with 15-minute TTL and one-time consumption
+- Auto-creation of users and wallets on first successful authentication
+- Multi-chain support: Ethereum, Polygon, Arbitrum, Optimism, Goerli, Sepolia
 
-**Security Features:**
-- Cryptographically secure random number generation
-- Token rotation with blacklist
-- Nonce one-time use
-- Expiration time validation
-- Chain ID verification
-- Domain verification (SIWE)
+**Files:** `src/auth/web3/siwe.rs`, `src/auth/web3/nonce.rs`,
+`src/api/handlers/web3.rs`
 
----
+### 2. FIDO2 / WebAuthn
 
-## Testing Results
+- Full WebAuthn ceremony — registration and authentication challenges
+- Challenge verification via webauthn-rs (attestation + assertion)
+- In-memory challenge state store (no Redis needed)
+- Passkey credential CRUD — create, list, delete with ownership checks
+- Counter tracking for replay-attack prevention
+- Cross-platform passkey sync with resident key requirement
 
-### Unit Tests: ✅ PASS
-- JWT generation/validation: All tests passing
-- Web3 nonce generation: All tests passing
-- SIWE message parsing: All tests passing
-- FIDO2 type handling: All tests passing
+**Files:** `src/auth/fido2/registration.rs`, `src/auth/fido2/authentication.rs`,
+`src/auth/fido2/types.rs`, `src/api/handlers/fido2.rs`
 
-### Integration Tests: ✅ PASS
-- Health endpoints: Functional
-- Web3 nonce generation: Functional
-- Protected route authentication: Functional
-- Invalid signature rejection: Functional
+### 3. JWT Sessions
 
-### End-to-End Tests: ✅ PASS
-```bash
-./scripts/test-e2e.sh
-# Passed: 9/9 tests
-# Failed: 0/9 tests
-```
+- Access tokens (15-minute TTL) and refresh tokens (7-day TTL)
+- TokenKind validation — refresh tokens cannot be used as access tokens
+- Refresh token rotation — each refresh invalidates the previous token
+- Session CRUD — list, revoke by ID
+- Token verification endpoint for external services (e.g., Quill MCP)
+- SHA-256 hashed refresh tokens for session lookup
 
----
+**Files:** `src/auth/jwt/mod.rs`, `src/auth/jwt/claims.rs`,
+`src/auth/jwt/middleware.rs`, `src/api/handlers/session.rs`,
+`src/db/models/session.rs`
 
-## Production Readiness Checklist
+### 4. API Key Management
 
-- ✅ Compiles without errors
-- ✅ All critical features implemented
-- ✅ Database migrations ready
-- ✅ Docker images buildable
-- ✅ NixOS module configured
-- ✅ CI/CD pipeline functional
-- ✅ Tests passing
-- ✅ Documentation complete
-- ✅ Error handling robust
-- ✅ Logging configured
-- ✅ Health checks operational
-- ✅ WebAuthn cryptographic verification complete (webauthn-rs)
+- Argon2id-hashed API keys — only the hash is stored; plaintext shown once
+- Key format: `ak_{environment}_{base58}` (e.g., `ak_prod_...`)
+- Prefix-based lookup — extract `ak_prod_` to find candidates, verify hash
+- Create, list, revoke (soft delete), and hard-delete operations
+- Expiration support and ownership scoping
 
----
+**Files:** `src/auth/keys/hashing.rs`, `src/auth/keys/service.rs`,
+`src/api/handlers/keys.rs`, `src/db/models/api_key.rs`
 
-## Deployment Options
+### 5. ZK JIT Capability Tokens
 
-### 1. Docker (Recommended for Production)
+- Ed25519-signed capability tokens with `base64(header).base64(payload).base64(sig)` format
+- Zero-database-write minting — pure CPU operation
+- Three-party model: issuer (holds signing key), verifier (holds verifying key),
+  consumer (presents token)
+- Scope grammar (`namespace:action`) with `admin` wildcard
+- Compile-time scope registry in `src/auth/capabilities/registry.rs`
+- Epoch-based batch revocation (O(1) emergency kill switch)
+- JSONL tombstone journal for durable per-token revocation
+- Comprehensive test suite for issuer, verifier, scope validation, epoch,
+  and tombstone persistence
 
-```bash
-# Build and start production stack
-docker-compose -f docker-compose.prod.yml up -d
+**Files:** `src/auth/jit/issuer.rs`, `src/auth/jit/verifier.rs`,
+`src/auth/jit/scope.rs`, `src/auth/jit/epoch.rs`,
+`src/auth/capabilities/registry.rs`
 
-# Run migrations
-docker-compose exec astral-key sqlx migrate run
-```
+### 6. Ed25519 Identity & Contacts
 
-### 2. NixOS (Recommended for NixOS Deployments)
+- Ed25519 public-key identity management (create, list, set current, delete)
+- Signature verification endpoint — clients sign locally, server verifies
+  Ed25519 signatures over canonical JSON
+- Contact graph — add/update contacts by public key, from QR scan
+- QR code generation (SVG + PNG) for public-key sharing
+- URI schemes: `mosaic://`, `mosiac://`, `astral://identity/`
 
-```nix
-# Add to configuration.nix
-services.astral-key.enable = true;
-services.astral-key.jwt.secretFile = "/etc/astral-key/jwt-secret";
+**Files:** `src/api/handlers/identity.rs`, `src/db/models/identity.rs`,
+`src/db/models/contact.rs`
 
-# Rebuild and switch
-sudo nixos-rebuild switch
-```
+### 7. Middleware
 
-### 3. Cargo (Development)
+- **JWT auth middleware** — validates `Authorization: Bearer` header on
+  protected routes
+- **Rate limiting** — per-key token-bucket limiter (API key prefix + client IP),
+  returns `429 Too Many Requests` with `Retry-After` header
+- **Audit logging** — structured JSON audit events written to stdout, one
+  per request, with request ID, client IP, resource, and outcome
+- **CORS** — permissive CORS layer (narrow for production)
 
-```bash
-# Start infrastructure
-docker-compose up -d
+**Files:** `src/api/middleware/rate_limit.rs`, `src/api/middleware/audit.rs`,
+`src/api/middleware/cors.rs`, `src/auth/jwt/middleware.rs`
 
-# Run migrations
-just migrate
+### 8. MCP Server (feature-gated)
 
-# Start server
-cargo run
-```
+- Model Context Protocol server behind `features = ["mcp"]`
+- Tools: health check, mint token, verify token, create API key
+- Static state initialised once before serving
 
----
+**Files:** `src/auth/mcp/tools.rs`, `src/auth/mcp/mod.rs`
 
-## API Endpoints
+### 9. Documentation
 
-### Public Endpoints
-- `GET /health` - Health check
-- `GET /ready` - Readiness check
-- `POST /api/v1/auth/web3/nonce` - Get Web3 nonce
-- `POST /api/v1/auth/web3/verify` - Verify Web3 signature
-- `GET /api/v1/auth/web3/chains` - Get supported chains
-- `POST /api/v1/auth/fido2/authenticate/options` - Get FIDO2 auth challenge
-- `POST /api/v1/auth/fido2/authenticate/verify` - Verify FIDO2 assertion
-- `POST /api/v1/sessions/refresh` - Refresh access token
-
-### Protected Endpoints (Require JWT)
-- `POST /api/v1/auth/fido2/register/options` - Get FIDO2 registration challenge
-- `POST /api/v1/auth/fido2/register/verify` - Verify FIDO2 registration
-- `GET /api/v1/auth/fido2/credentials` - List user's credentials
-- `DELETE /api/v1/auth/fido2/credentials/:id` - Delete credential
-- `DELETE /api/v1/sessions/current` - Logout
-- `GET /api/v1/sessions` - List sessions
-- `GET /api/v1/users/me` - Get current user
-- `POST /api/v1/users/me` - Update user
-- `DELETE /api/v1/users/me` - Delete account
-- `GET /api/v1/users/me/security-keys` - Get security keys
+- `README.md` — project overview, quick start (cargo, Docker, Nix)
+- `docs/api.md` — full API reference with curl examples
+- `docs/architecture.md` — module layout and authentication flow diagrams
+- `docs/deployment.md` — Docker Compose, NixOS, K3s deployment guide
+- `docs/errors.md` — error code reference by endpoint
+- `CONTRIBUTING.md` — build, test, and PR guidelines
+- `config.example.yaml` / `.env.example` — environment variable reference
+- `HEY.md` — cross-agent coordination (v2 upgrade tracker)
 
 ---
 
-## Remaining Work (0%)
+## Endpoints
 
-**All core features are now 100% complete:**
-- ✅ Web3 authentication with real Ethereum signature verification
-- ✅ FIDO2/WebAuthn with full cryptographic verification (webauthn-rs)
-- ✅ JWT authentication with token rotation
-- ✅ Session management with Redis-backed token blacklist
-- ✅ Database integration with PostgreSQL
-- ✅ Cache integration with Redis
-- ✅ Production deployment configurations
-- ✅ Comprehensive testing infrastructure
+### Public (no auth)
 
-**Optional Future Enhancements:**
-- Vaultwarden API client integration (currently stubbed)
-- OpenTelemetry metrics and tracing
-- WebSocket API for real-time updates
-- Additional Web3 chains beyond current 6 supported chains
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Liveness check |
+| GET | `/ready` | Readiness check (DB) |
+| POST | `/api/v1/auth/web3/chains` | List supported chains |
+| POST | `/api/v1/auth/web3/nonce` | SIWE nonce |
+| POST | `/api/v1/auth/web3/verify` | SIWE → JWT |
+| POST | `/api/v1/auth/fido2/authenticate/options` | Auth challenge |
+| POST | `/api/v1/auth/fido2/authenticate/verify` | Auth → JWT |
+| POST | `/api/v1/auth/verify` | Validate a JWT |
+| POST | `/api/v1/auth/token/refresh` | Refresh token pair |
+| POST | `/api/v1/identity/verify` | Verify Ed25519 signature |
+| GET | `/api/v1/identity/qr/:pubkey` | Generate QR code |
+
+### Protected (JWT required)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/auth/fido2/register/options` | Register options |
+| POST | `/api/v1/auth/fido2/register/verify` | Register verify |
+| GET | `/api/v1/auth/fido2/credentials` | List passkeys |
+| DELETE | `/api/v1/auth/fido2/credentials/:id` | Delete passkey |
+| POST | `/api/v1/auth/keys` | Create API key |
+| GET | `/api/v1/auth/keys` | List API keys |
+| DELETE | `/api/v1/auth/keys/:id` | Delete API key |
+| POST | `/api/v1/auth/keys/:id/revoke` | Revoke API key |
+| GET | `/api/v1/auth/sessions` | List sessions |
+| DELETE | `/api/v1/auth/sessions/:id` | Revoke session |
+| POST | `/api/v1/identity` | Create identity |
+| GET | `/api/v1/identity` | List identities |
+| GET | `/api/v1/identity/current` | Current identity |
+| POST | `/api/v1/identity/:id/set-current` | Set current identity |
+| DELETE | `/api/v1/identity/:id` | Delete identity |
+| GET | `/api/v1/contacts` | List contacts |
+| POST | `/api/v1/contacts` | Add / update contact |
+| POST | `/api/v1/contacts/scan` | Scan QR → contact |
+| DELETE | `/api/v1/contacts/:pubkey` | Delete contact |
 
 ---
 
-## Performance Characteristics
+## Key Design Decisions
 
-- **Build Time:** ~13 seconds (release mode)
-- **Startup Time:** <1 second
-- **Memory Usage:** ~50MB base + database pools
-- **Throughput:** Not yet benchmarked (Rust + Axum = high performance expected)
-- **Concurrency:** Tokio async runtime (highly scalable)
+| Decision | Rationale |
+|----------|-----------|
+| **SQLite only** | Zero ops — no Redis/Postgres daemons to manage |
+| **Ed25519 for JIT signing** | Fastest verify, deterministic, safest 2026 default |
+| **API key prefix `ak_prod_`** | Industry standard (GitHub `ghp_`, Stripe `sk_live_`) |
+| **Argon2id for API key hashing** | GPU-resistant memory-hard function |
+| **Scope = flat set intersection** | No Zanzibar graph needed; set membership sufficient |
+| **MCP server feature-gated** | Optional dependency, minimal base-binary overhead |
+| **Revocation = epoch + tombstones** | Epoch fast path for batch, JSONL for individual |
 
 ---
 
-## Conclusion
+## Testing Strategy
 
-Astral Key is now a production-ready authentication microservice with:
-- Complete Web3 authentication with real signature verification
-- Functional FIDO2 authentication flow (with optional crypto hardening)
-- Robust session management
-- Full database and cache integration
-- Production deployment configurations
-- Comprehensive testing infrastructure
-- Complete documentation
+- Unit tests live alongside code (`#[cfg(test)] mod tests`)
+- Modules with tests: JWT, Web3 SIWE, FIDO2 types, rate limiter, audit,
+  JIT issuer/verifier/scope/epoch, API key hashing, capabilities registry,
+  SIWE message parsing, nonce generation, CORS
+- Integration tests: `tests/` directory (planned)
+- No external services required — SQLite runs in-memory for tests
 
-The system is ready for deployment in production environments.
+---
+
+## Remaining Work
+
+- Verify `cargo check && cargo test --lib` passes post-v2 (Phase 4 completion
+  pending)
+- Run `cargo clippy` and address any warnings
+- Build release binary and deploy to K3s
+- Wire sops-encrypted issuer key in production
+- Add integration tests for new endpoints (keys, sessions, JIT, identity)
+- Container image: finalize multi-stage build in Containerfile

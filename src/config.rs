@@ -13,6 +13,7 @@ pub struct Config {
     pub web3: Web3Config,
     pub fido2: Fido2Config,
     pub jwt: JwtConfig,
+    pub jit: JitConfig,
     pub oauth: OAuthConfig,
 }
 
@@ -106,6 +107,31 @@ fn default_refresh_token_ttl() -> u64 {
     604800 // 7 days
 }
 
+/// ZK JIT capability token configuration.
+///
+/// Optional — only set `JIT_ISSUER_KEY` to enable JIT token minting.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct JitConfig {
+    /// Hex-encoded 32-byte Ed25519 private key (64 hex chars).
+    /// When set, a `JitIssuer` is initialized in AppState.
+    #[serde(default)]
+    pub issuer_key_hex: Option<String>,
+    /// Issuer identifier embedded in minted tokens (e.g. "ak:issuer:01").
+    #[serde(default = "default_jit_issuer_id")]
+    pub issuer_id: String,
+    /// Default TTL in seconds for minted tokens.
+    #[serde(default = "default_jit_ttl")]
+    pub default_ttl: u64,
+}
+
+fn default_jit_issuer_id() -> String {
+    "ak:issuer:01".to_string()
+}
+
+fn default_jit_ttl() -> u64 {
+    3600 // 1 hour
+}
+
 /// OAuth provider configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuthProviderConfig {
@@ -168,6 +194,15 @@ impl Config {
                     .unwrap_or_else(default_origins),
                 attestation: std::env::var("FIDO2_ATTESTATION")
                     .unwrap_or_else(|_| "indirect".to_string()),
+            },
+            jit: JitConfig {
+                issuer_key_hex: std::env::var("JIT_ISSUER_KEY").ok(),
+                issuer_id: std::env::var("JIT_ISSUER_ID")
+                    .unwrap_or_else(|_| default_jit_issuer_id()),
+                default_ttl: std::env::var("JIT_DEFAULT_TTL")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_else(default_jit_ttl),
             },
             jwt: JwtConfig {
                 access_token_ttl: default_access_token_ttl(),

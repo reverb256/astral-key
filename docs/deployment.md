@@ -198,6 +198,9 @@ spec:
 | `FIDO2_ORIGINS` | No | `http://localhost:8080` | Comma-separated allowed origins |
 | `FIDO2_ATTESTATION` | No | `indirect` | Attestation preference: `none`, `indirect`, `direct` |
 | `ASTRAL_WEB3_DOMAIN` | No | `maplespike.ca` | Canonical SIWE domain |
+| `JIT_ISSUER_KEY` | No* | — | Ed25519 private key (64 hex chars). Enables JIT capability token minting when set. Generate: `openssl rand -hex 32` |
+| `JIT_ISSUER_ID` | No | `ak:issuer:01` | Issuer identifier embedded in minted JIT tokens |
+| `JIT_DEFAULT_TTL` | No | `3600` | Default TTL (seconds) for JIT tokens. Min: `1`, max depends on use case |
 | `OAUTH_BASE_URL` | No | `http://localhost:8080` | Base URL for OAuth redirects |
 | `OAUTH_GITHUB_CLIENT_ID` | No | — | GitHub OAuth client ID (optional — omit to disable) |
 | `OAUTH_GITHUB_CLIENT_SECRET` | No | — | GitHub OAuth client secret |
@@ -234,3 +237,55 @@ spec:
       `/ready` probes as shown above.
 - [ ] **Resource limits** — Astral Key is lightweight. 256 MiB RAM and
       0.5 CPU cores are sufficient for most workloads.
+
+> Snapshot from August 2026 cleanup; verify current state via /etc/nixos/SOPS-NIX.md.
+
+## See Also — SOPS-NIX (canonical on this host)
+
+The canonical local reference is `/etc/nixos/SOPS-NIX.md`. Other repos should cross-link rather than maintain their own copy.
+
+---
+
+## Mosaic Identity Service (MIS) / Bridges
+
+### Architecture
+
+MIS crate (`crates/mosaic-identity/`) is a standalone Rust binary with 16 REST endpoints for Ed25519 key management, cross-protocol identity binding, PQ hybrid signing, and agent ephemeral certs.
+
+Four Node.js transport plugins sidecar as k8s pods in `orchestration` namespace:
+
+| Bridge | Protocol | Entrypoint |
+|--------|----------|------------|
+| atproto | PLC/BSky DID resolution | `bridges/atproto/index.js` (daemon :8083) |
+| buzz | Nostr WebSocket relay | `bridges/buzz/index.js` |
+| matrix | Matrix Application Service | `bridges/matrix/index.js` (AS :8082) |
+| irc | IRC TLS client | `bridges/irc/index.js` |
+
+### Quick start (standalone)
+
+```bash
+cargo run -p mosaic-identity -- --database "sqlite:///tmp/mis.db?mode=rwc"
+curl http://localhost:8081/health
+curl -X POST http://localhost:8081/keys/generate -H 'Content-Type: application/json' -d '{}'
+curl -X POST http://localhost:8081/bindings/resolve -H 'Content-Type: application/json' -d '{"did_or_handle":"bsky.app"}'
+```
+
+### Docker (k3s deploy)
+
+```bash
+docker build --no-cache -t nexus:5000/mosaic-identity:v0.1.0 -f Dockerfile.mosaic-identity .
+docker save nexus:5000/mosaic-identity:v0.1.0 | sudo ctr -n k8s.io images import -
+
+docker build --no-cache -t nexus:5000/mosaic-bridges:v0.1.0 -f Dockerfile.bridges .
+docker save nexus:5000/mosaic-bridges:v0.1.0 | sudo ctr -n k8s.io images import -
+
+kubectl apply -f /etc/nixos/k8s/mosaic-identity/deployment.yaml
+kubectl apply -f /etc/nixos/k8s/mosaic-bridges/
+```
+
+### Known issues
+
+- **PVC slow**: `local-path` provisioner takes ~30s. Workaround: `emptyDir: {}`.
+- **Bridge UID**: Container `appuser` = UID 100. k8s `runAsUser: 100` required.
+- **NixOS k3s unit bug**: No ExecStart when `role=server` + `clusterInit=false`. Workaround: systemd drop-in at `/run/systemd/system/k3s.service.d/override.conf`.
+- **No registry push**: `nexus:5000` resolves to `127.0.0.2` on host. Use `docker save | ctr import`.

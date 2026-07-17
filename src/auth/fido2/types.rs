@@ -62,6 +62,7 @@ pub struct RegistrationRequest {
     #[serde(rename = "type")]
     pub type_: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub transports: Vec<String>,
 }
 

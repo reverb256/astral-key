@@ -8,6 +8,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use crate::auth::fido2::Fido2Service;
+use crate::auth::jit::{JitIssuer, JitVerifier};
 use crate::auth::jwt::JwtService;
 use crate::config::Config;
 use crate::db::pool::DbPool;
@@ -65,6 +66,12 @@ pub struct AppState {
     // Auth services
     pub jwt: Option<JwtService>,
     pub fido2: Option<Fido2Service>,
+
+    // ZK JIT capability token issuer (wrapped in Arc for Clone)
+    pub jit_issuer: Option<Arc<JitIssuer>>,
+
+    // ZK JIT capability token verifier (wrapped in Arc for Clone)
+    pub jit_verifier: Option<Arc<JitVerifier>>,
 }
 
 impl AppState {
@@ -113,6 +120,46 @@ impl AppState {
             }
         };
 
+        // Initialize JIT issuer and verifier (optional — requires JIT_ISSUER_KEY)
+        let (jit_issuer, jit_verifier) = match config.jit.issuer_key_hex.as_ref() {
+            Some(key_hex) => {
+                match JitIssuer::new(key_hex, &config.jit.issuer_id) {
+                    Ok(issuer) => {
+                        tracing::info!(
+                            "JIT issuer initialized (issuer_id={}, default_ttl={}s)",
+                            config.jit.issuer_id,
+                            config.jit.default_ttl,
+                        );
+
+                        // Derive the public key from the signing key and register it
+                        // with the verifier so POST /auth/jit/verify works.
+                        let key_bytes = hex::decode(key_hex)
+                            .expect("JIT_ISSUER_KEY already validated during issuer init");
+                        let mut arr = [0u8; 32];
+                        arr.copy_from_slice(&key_bytes);
+                        let signing_key = ed25519_dalek::SigningKey::from_bytes(&arr);
+                        let vk_bytes = signing_key.verifying_key().to_bytes();
+
+                        let verifier = JitVerifier::new();
+                        verifier.add_issuer_key(&config.jit.issuer_id, &vk_bytes);
+
+                        (
+                            Some(Arc::new(issuer)),
+                            Some(Arc::new(verifier)),
+                        )
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to initialize JIT issuer: {}", e);
+                        (None, None)
+                    }
+                }
+            }
+            None => {
+                tracing::info!("JIT issuer not configured — set JIT_ISSUER_KEY to enable");
+                (None, None)
+            }
+        };
+
         tracing::info!("Application state initialized");
 
         Ok(Self {
@@ -121,15 +168,19 @@ impl AppState {
             fido2_state,
             jwt,
             fido2,
+            jit_issuer,
+            jit_verifier,
         })
     }
 
     /// Run migrations on the database
+    #[allow(dead_code)]
     pub async fn run_migrations(&self) -> Result<()> {
         self.db.run_migrations().await
     }
 
     /// Health check for all services
+    #[allow(dead_code)]
     pub async fn health_check(&self) -> Result<bool> {
         self.db.health_check().await
     }

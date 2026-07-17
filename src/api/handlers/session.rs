@@ -20,8 +20,10 @@ use crate::state::AppState;
 pub struct RefreshTokenRequest {
     pub refresh_token: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub device_info: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub ip_address: String,
 }
 

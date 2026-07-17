@@ -23,6 +23,7 @@ use crate::auth::jit::{Capability, VerificationError, VerifiedClaims};
 ///
 /// Validates capability tokens using only cryptographic operations and
 /// in-memory state (epoch counter, revocation set, known issuer keys).
+#[allow(dead_code)]
 pub struct JitVerifier {
     /// Mapping of `issuer_id -> VerifyingKey` for known issuers
     verifying_keys: std::sync::RwLock<HashMap<String, VerifyingKey>>,
@@ -36,6 +37,7 @@ pub struct JitVerifier {
 
 impl JitVerifier {
     /// Create a new verifier with default leeway (5 seconds).
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             verifying_keys: std::sync::RwLock::new(HashMap::new()),
@@ -49,6 +51,7 @@ impl JitVerifier {
     ///
     /// The `public_key` must be a 32-byte Ed25519 verifying key.
     /// If the issuer is already registered, the key is **updated**.
+    #[allow(dead_code)]
     pub fn add_issuer_key(&self, issuer_id: &str, public_key: &[u8; 32]) {
         // `from_bytes` only fails for invalid curve points; we unwrap
         // because `add_issuer_key` is called with a known-good key.
@@ -61,12 +64,14 @@ impl JitVerifier {
     ///
     /// Tokens minted at an epoch **lower** than this value will be rejected
     /// with [`VerificationError::StaleEpoch`].
+    #[allow(dead_code)]
     pub fn set_epoch(&self, epoch: u64) {
         self.current_epoch
             .store(epoch, std::sync::atomic::Ordering::Release);
     }
 
     /// Get the current global epoch.
+    #[allow(dead_code)]
     pub fn current_epoch(&self) -> u64 {
         self.current_epoch
             .load(std::sync::atomic::Ordering::Acquire)
@@ -77,6 +82,7 @@ impl JitVerifier {
     /// A token that expired within the leeway window is still considered
     /// valid. This prevents failures from minor clock drift between
     /// the issuer and verifier.
+    #[allow(dead_code)]
     pub fn set_leeway(&mut self, seconds: i64) {
         self.leeway_seconds = seconds;
     }
@@ -94,6 +100,7 @@ impl JitVerifier {
     /// # Errors
     ///
     /// Returns [`VerificationError`] on any validation failure.
+    #[allow(dead_code)]
     pub fn verify(&self, token: &str) -> Result<VerifiedClaims, VerificationError> {
         // Step 1: Split the token into 3 parts
         let parts: Vec<&str> = token.split('.').collect();
@@ -194,16 +201,18 @@ impl JitVerifier {
     /// The revoked token ID is added to an in-memory set. This set is
     /// **not** persisted — use [`TombstoneJournal`](super::epoch::TombstoneJournal)
     /// for durable revocation tracking.
+    #[allow(dead_code)]
     pub fn revoke_token(&self, token_id: &str) {
         let mut revoked = self.revoked_tokens.write().expect("Verifier lock poisoned");
         revoked.insert(token_id.to_string());
     }
 
     /// Check if a token ID has been revoked.
+    #[allow(dead_code)]
     pub fn is_revoked(&self, token_id: &str) -> bool {
         self.revoked_tokens
             .read()
-            .map_or(false, |r| r.contains(token_id))
+            .is_ok_and(|r| r.contains(token_id))
     }
 }
 
@@ -250,11 +259,14 @@ mod tests {
 
     #[test]
     fn test_verify_expired_token() {
-        let (verifier, issuer) = test_verifier_and_issuer();
-        // Mint with 0 TTL — already expired
+        let (mut verifier, issuer) = test_verifier_and_issuer();
+        // Set leeway to 0 so expiry is strict (no clock skew allowance).
+        verifier.set_leeway(0);
+
         let token = issuer.mint(vec!["admin".to_string()], "aud", 0);
-        // Sleep briefly to ensure the token is expired
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // Wait for the Unix timestamp (seconds) to advance past `exp`.
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
         let result = verifier.verify(&token.token);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), VerificationError::Expired(_)));
