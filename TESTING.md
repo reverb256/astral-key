@@ -1,118 +1,91 @@
-# Astral Key - Testing Guide
+# Astral Key — Testing Guide
 
-This document describes how to test the Astral Key authentication microservice.
+This document describes how to test the Astral Key authentication service.
+
+---
 
 ## Prerequisites
 
-Before running tests, ensure you have:
+- **Rust 1.75+** — [Install via rustup](https://rustup.rs)
+- **Nix** (optional, for `nix develop` with pinned toolchain)
+- No external services required (SQLite runs in-memory for tests)
 
-1. **Docker and Docker Compose** installed
-2. **Nix** (optional, for reproducible builds)
-3. **make** or **just** command runner
-
-## Setting Up Test Environment
-
-### Start Required Services
-
-```bash
-# Start PostgreSQL, Redis, and Vaultwarden
-docker-compose up -d
-
-# Verify services are running
-docker-compose ps
-```
-
-### Run Database Migrations
-
-```bash
-# Using just (if available)
-just migrate
-
-# Or using sqlx directly
-sqlx migrate run --database-url postgresql://postgres:postgres@localhost/astral_key
-
-# Or with Docker
-docker-compose exec -T astral-key sqlx migrate run --database-url postgresql://postgres:postgres@localhost/astral_key
-```
-
-### Start the Application
-
-```bash
-# Development mode
-cargo run
-
-# Or using just
-just dev
-
-# Or with Nix
-nix-shell --pure --run 'cargo run'
-```
+---
 
 ## Running Tests
 
-### Unit Tests
-
-Run unit tests for individual modules:
+### Unit Tests (all modules)
 
 ```bash
 # Run all unit tests
 cargo test --lib
 
-# Run tests with output
+# With output
 cargo test --lib -- --nocapture
 
-# Run tests for specific module
+# Run tests for a specific module
 cargo test --lib jwt::
 cargo test --lib web3::
 cargo test --lib fido2::
+cargo test --lib jit::
+cargo test --lib keys::
+cargo test --lib rate_limit::
+cargo test --lib audit::
+cargo test --lib capabilities::
 ```
 
 ### Integration Tests
 
-Run API integration tests:
+Integration tests are planned but not yet implemented. Once added, they will
+live in `tests/` and run with:
 
 ```bash
-# Run all integration tests
-cargo test --test api_integration_tests
-
-# Run specific test
-cargo test --test api_integration_tests test_health_endpoint
+cargo test --test <test_file_name>
 ```
 
-### End-to-End Tests
+---
 
-Run the comprehensive e2e test script:
+## Module Test Coverage
 
-```bash
-# Run all e2e tests
-./scripts/test-e2e.sh
+| Module | What's tested | File |
+|--------|---------------|------|
+| **JWT** | Token generation (access, refresh, pair), validation (access, refresh), token-kind cross-check, invalid token rejection, user ID extraction, short-secret rejection | `src/auth/jwt/mod.rs`, `src/auth/jwt/tests.rs` |
+| **Web3 SIWE** | SIWE message parsing (domain, address, version, chain_id, nonce), chain ID mismatch validation | `src/auth/web3/siwe.rs` |
+| **Web3 Nonce** | Nonce length (64 hex chars), SIWE message template generation | `src/auth/web3/nonce.rs` |
+| **JIT Issuer** | Valid/invalid key hex, mint signature format (3-part token), self-verification of minted tokens, epoch increment, epoch embedded in token | `src/auth/jit/issuer.rs` |
+| **JIT Verifier** | Valid token verification, expired token rejection, unknown issuer rejection, stale epoch rejection, revoked token rejection, malformed token rejection, dynamic key registration | `src/auth/jit/verifier.rs` |
+| **JIT Scope** | Exact-match satisfaction, missing-scope rejection, admin wildcard, empty-required pass, empty-granted fail, valid scope grammar, invalid scope rejection | `src/auth/jit/scope.rs` |
+| **JIT Epoch** | Initial value, increment, set, tombstone create/revoke, tombstone persistence across sessions, tombstone reload | `src/auth/jit/epoch.rs` |
+| **Rate Limiter** | Burst allowance, refill over time, build_key with/without bearer token, build_key fallback to X-Real-IP, unknown IP, Retry-After header format | `src/api/middleware/rate_limit.rs` |
+| **Audit** | AuditEvent JSON serialisation, client_ip from X-Forwarded-For, X-Real-IP, unknown, Forwarded-For preference over Real-IP | `src/api/middleware/audit.rs` |
+| **API Key Hashing** | Key format (prefix `ak_prod_`), env prefix `ak_dev_`, valid hash verification, invalid key rejection, prefix extraction | `src/auth/keys/hashing.rs` |
+| **Capabilities Registry** | Known scope validation (19 scopes), unknown scope rejection, round-trip completeness, namespace parse/display, namespace_of helper | `src/auth/capabilities/registry.rs` |
+| **CORS** | Layer creation test | `src/api/middleware/cors.rs` |
 
-# With custom API base URL
-API_BASE=http://localhost:8080 ./scripts/test-e2e.sh
-```
-
-The e2e test script covers:
-- Health and readiness checks
-- Web3 nonce generation
-- Web3 signature verification
-- FIDO2 authentication options
-- Protected route authentication
-- Session refresh
-- CORS handling
+---
 
 ## Manual Testing
 
-### Test Web3 Authentication Flow
+### Health & Readiness
+
+```bash
+# Start the server (SQLite database created automatically)
+JWT_SECRET=$(openssl rand -hex 32) cargo run
+
+# Health check
+curl http://localhost:8080/health
+
+# Readiness check (checks database connectivity)
+curl http://localhost:8080/ready
+```
+
+### Web3 / SIWE Flow
 
 ```bash
 # 1. Request a nonce
 curl -X POST http://localhost:8080/api/v1/auth/web3/nonce \
   -H "Content-Type: application/json" \
-  -d '{
-    "domain": "localhost",
-    "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-    "chain_id": 1
-  }'
+  -d '{"domain": "maplespike.ca", "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "chain_id": 1}'
 
 # 2. Sign the SIWE message with your Ethereum wallet
 # (Use the nonce and message_template from step 1)
@@ -120,177 +93,131 @@ curl -X POST http://localhost:8080/api/v1/auth/web3/nonce \
 # 3. Verify signature and get JWT tokens
 curl -X POST http://localhost:8080/api/v1/auth/web3/verify \
   -H "Content-Type: application/json" \
-  -d '{
-    "message": "<signed message>",
-    "signature": "<signature>",
-    "chain_id": 1
-  }'
+  -d '{"message": "<signed message>", "signature": "<signature>", "chain_id": 1}'
 
-# 4. Use the access_token from step 3
-curl -X GET http://localhost:8080/api/v1/users/me \
-  -H "Authorization: Bearer <access_token>"
+# 4. Verify the JWT token
+curl -X POST http://localhost:8080/api/v1/auth/verify \
+  -H "Content-Type: application/json" \
+  -d '{"token": "<access_token>"}'
 ```
 
-### Test FIDO2/Passkey Authentication Flow
+### FIDO2 / Passkey Flow
 
 ```bash
 # 1. Get authentication options
 curl -X POST http://localhost:8080/api/v1/auth/fido2/authenticate/options \
   -H "Content-Type: application/json" \
-  -d '{
-    "username": "<user_uuid>"
-  }'
+  -d '{"username": "<user_uuid>"}'
 
-# 2. Use the challenge with WebAuthn API
-# (navigator.credentials.get())
+# 2. Use the challenge with WebAuthn API (navigator.credentials.get())
 
 # 3. Verify assertion and get JWT tokens
 curl -X POST http://localhost:8080/api/v1/auth/fido2/authenticate/verify \
   -H "Content-Type: application/json" \
-  -d '{
-    "id": "<credential_id>",
-    "raw_id": "<raw_credential_id>",
-    "response": {
-      "client_data_json": "<...>",
-      "authenticator_data": "<...>",
-      "signature": "<...>"
-    },
-    "type": "public-key"
-  }'
+  -d '{"id": "<credential_id>", "raw_id": "<raw_credential_id>", "response": {...}, "type": "public-key"}'
 ```
 
-### Test Session Management
+### API Key Management
+
+```bash
+# Create an API key (requires JWT)
+curl -X POST http://localhost:8080/api/v1/auth/keys \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access_token>" \
+  -d '{"name": "My Key", "scopes": ["dns:read", "pages:deploy"], "environment": "prod"}'
+
+# List keys
+curl http://localhost:8080/api/v1/auth/keys \
+  -H "Authorization: Bearer <access_token>"
+
+# Revoke a key
+curl -X POST http://localhost:8080/api/v1/auth/keys/:id/revoke \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### Session Management
 
 ```bash
 # Refresh tokens
-curl -X POST http://localhost:8080/api/v1/sessions/refresh \
+curl -X POST http://localhost:8080/api/v1/auth/token/refresh \
   -H "Content-Type: application/json" \
-  -d '{
-    "refresh_token": "<refresh_token>"
-  }'
+  -d '{"refresh_token": "<refresh_token>"}'
 
 # List active sessions
-curl -X GET http://localhost:8080/api/v1/sessions \
+curl http://localhost:8080/api/v1/auth/sessions \
   -H "Authorization: Bearer <access_token>"
 
-# Logout (revoke session)
-curl -X DELETE http://localhost:8080/api/v1/sessions/current \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{
-    "refresh_token": "<refresh_token>"
-  }'
-```
-
-### Test FIDO2 Registration (Requires Authentication)
-
-```bash
-# Get registration options
-curl -X POST http://localhost:8080/api/v1/auth/fido2/register/options \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{
-    "username": "mykey",
-    "display_name": "My Security Key"
-  }'
-
-# Use the challenge with WebAuthn API
-# (navigator.credentials.create())
-
-# Complete registration
-curl -X POST http://localhost:8080/api/v1/auth/fido2/register/verify \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{
-    "id": "<credential_id>",
-    "raw_id": "<raw_credential_id>",
-    "response": {
-      "client_data_json": "<...>",
-      "attestation_object": "<...>"
-    },
-    "type": "public-key"
-  }'
-
-# List registered credentials
-curl -X GET http://localhost:8080/api/v1/auth/fido2/credentials \
+# Revoke a session
+curl -X DELETE http://localhost:8080/api/v1/auth/sessions/:id \
   -H "Authorization: Bearer <access_token>"
 ```
 
-## Test Coverage
-
-### Current Coverage
-
-- ✅ JWT token generation and validation
-- ✅ Web3 nonce generation
-- ✅ SIWE message parsing
-- ✅ Database model operations
-- ✅ Cache operations
-- ⚠️ Web3 signature verification (needs real Ethereum signature)
-- ⚠️ FIDO2 attestation (needs WebAuthn authenticator)
-
-### Running Coverage Analysis
+### Ed25519 Identity & Signatures
 
 ```bash
-# Install tarpaulin
-cargo install cargo-tarpaulin
+# Create an identity (stores public key only)
+curl -X POST http://localhost:8080/api/v1/identity \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access_token>" \
+  -d '{"pubkey": "<base64url-32-byte-ed25519-pubkey>", "label": "My Key"}'
 
-# Run coverage analysis
-cargo tarpaulin --out Html
+# Verify a signature (public endpoint)
+curl -X POST http://localhost:8080/api/v1/identity/verify \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"msg": "hello"}, "signature": "<base64url-sig>", "pubkey": "<base64url-pubkey>"}'
 
-# View report
-open html/index.html
+# Generate a QR code for a public key
+curl http://localhost:8080/api/v1/identity/qr/<base64url-pubkey>?format=svg
 ```
 
-## CI/CD Testing
+---
 
-Tests run automatically on:
+## CI/CD
+
+Tests run automatically via GitHub Actions on:
+
 - Every pull request
-- Push to main or develop branches
-- Manual workflow dispatch
+- Push to `main` or `master`
 
-See `.github/workflows/ci.yml` for CI/CD configuration.
+See `.github/workflows/ci.yml` for the CI configuration.
+
+---
 
 ## Troubleshooting
 
-### Tests Fail with "Connection Refused"
+### Tests fail with build errors
 
-Ensure the server is running:
+Make sure your Rust toolchain is up to date:
+
 ```bash
-cargo run
+rustup update stable
 ```
 
-### Tests Fail with "Database Unavailable"
+### Tests hang or time out
 
-Ensure PostgreSQL is running and migrations are applied:
+Some asynchronous tests may time out under heavy load. Increase the test
+timeout:
+
 ```bash
-docker-compose up -d
-just migrate
+cargo test -- --test-threads=1
 ```
 
-### Tests Fail with "Redis Unavailable"
+### Database-related test issues
 
-Ensure Redis is running:
-```bash
-docker-compose up -d
-```
+SQLite tests run in-memory (no file I/O). If you see SQLite errors, check
+that the `sqlx` crate feature `sqlite` is enabled in `Cargo.toml`.
 
-### Integration Tests Time Out
-
-Increase timeout in test configuration or check service health:
-```bash
-curl http://localhost:8080/health
-curl http://localhost:8080/ready
-```
+---
 
 ## Continuous Testing
 
-For rapid development feedback:
-
 ```bash
-# Watch mode (requires cargo-watch)
+# Install cargo-watch
 cargo install cargo-watch
-cargo watch -x test
 
-# Test with auto-run on save
+# Watch mode — re-run tests on every save
 cargo watch -x 'test --lib'
+
+# Watch a specific module
+cargo watch -x 'test --lib jwt::'
 ```

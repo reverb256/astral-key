@@ -5,6 +5,7 @@
 use tower_http::cors::{Any, CorsLayer};
 
 /// Create CORS middleware
+#[allow(dead_code)]
 pub fn create_cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(Any) // In production, specify allowed origins

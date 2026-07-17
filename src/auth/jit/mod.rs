@@ -13,9 +13,7 @@ pub mod issuer;
 pub mod scope;
 pub mod verifier;
 
-pub use epoch::{EpochManager, TombstoneJournal};
 pub use issuer::JitIssuer;
-pub use scope::{is_valid_scope, satisfies};
 pub use verifier::JitVerifier;
 
 use serde::{Deserialize, Serialize};
@@ -24,6 +22,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Carries the full authorization context that is cryptographically signed
 /// by the issuing key.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Capability {
     /// Token ID (UUID v4 — unique per minted token)
@@ -46,6 +45,7 @@ pub struct Capability {
 ///
 /// The `token` field is the complete signed token string in
 /// `base64(header).base64(payload).base64(signature)` format.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedToken {
     /// The full signed token string
@@ -60,6 +60,7 @@ pub struct SignedToken {
 ///
 /// These are the **trusted** contents of a token after all validation
 /// checks (signature, expiry, epoch, revocation) have passed.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerifiedClaims {
     pub subject: String,
@@ -75,6 +76,7 @@ pub struct VerifiedClaims {
 ///
 /// **Note:** This is a temporary standalone enum using `thiserror`.
 /// It will be replaced by Phase 1's unified `Error` enum during compilation.
+#[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 pub enum VerificationError {
     #[error("Invalid signature")]

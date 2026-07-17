@@ -46,6 +46,8 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
             "/auth/sessions/:id",
             delete(handlers::session::revoke_session),
         )
+        // ZK JIT capability token minting (require authentication)
+        .route("/auth/jit/mint", post(handlers::jit::mint_token))
         // Identity and contacts (require authentication)
         .route("/identity", post(handlers::identity::create_identity))
         .route("/identity", get(handlers::identity::list_identities))
@@ -98,7 +100,10 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
         .route(
             "/auth/token/refresh",
             post(handlers::session::refresh_token),
-        );
+        )
+        // ZK JIT token verification (public — delegated services can validate
+        // capability tokens without needing a JWT of their own)
+        .route("/auth/jit/verify", post(handlers::jit::verify_token));
 
     router
         .nest(

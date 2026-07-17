@@ -125,6 +125,7 @@ impl JwtService {
     }
 
     /// Extract user ID from HMAC-signed token
+    #[allow(dead_code)]
     pub fn extract_user_id(&self, token: &str) -> Result<Uuid> {
         let claims = self.validate_access_token(token)?;
         Uuid::parse_str(&claims.sub)

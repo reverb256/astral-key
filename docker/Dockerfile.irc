@@ -1,0 +1,13 @@
+FROM rust:1.81-slim AS build
+WORKDIR /build
+RUN rustup component add rustfmt 2>/dev/null || true
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ ./crates/
+RUN cargo build -p mosaic-bridge-irc --release && \
+    cp /build/target/release/mosaic-bridge-irc /mosaic-bridge
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /mosaic-bridge /usr/local/bin/mosaic-bridge
+EXPOSE 8088
+CMD ["mosaic-bridge"]

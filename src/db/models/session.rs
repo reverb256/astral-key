@@ -82,6 +82,7 @@ impl Session {
     ///
     /// The `refresh_token` is SHA-256 hashed before storage;
     /// the JWT itself provides integrity.
+    #[allow(dead_code)]
     pub async fn create(
         pool: &SqlitePool,
         user_id: Uuid,
@@ -192,6 +193,7 @@ impl Session {
     }
 
     /// Hard-delete this session from the database.
+    #[allow(dead_code)]
     pub async fn delete(&self, pool: &SqlitePool) -> Result<()> {
         sqlx::query("DELETE FROM sessions WHERE id = ?1")
             .bind(self.id.to_string())

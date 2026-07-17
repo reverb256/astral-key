@@ -1,0 +1,17 @@
+[package]
+name = "mosaic-bridge-telegram"
+version = "0.1.0"
+edition = "2021"
+description = "Mosaic ↔ Telegram bridge via HTTP Bot API — long-polling daemon with rate limiting and MIS probe"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+mosaic-client = { path = "../mosaic-client" }
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

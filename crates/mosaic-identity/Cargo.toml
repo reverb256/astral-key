@@ -1,0 +1,56 @@
+[package]
+name = "mosaic-identity"
+version = "0.1.0"
+description = "Mosaic Identity Service — PKI layer: key generation, signing, verification, identity bindings"
+edition = "2021"
+license = "MIT"
+rust-version = "1.75"
+
+[features]
+default = []
+pq = ["pqcrypto-falcon", "pqcrypto-traits"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full", "tracing"] }
+
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database (SQLite via sqlx — same as astral-key workspace)
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono"] }
+
+# Cryptography
+ring = "0.17"
+hex = "0.4"
+sha2 = "0.10"
+
+# HTTP client (for atproto DID resolution)
+reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# CLI args
+clap = { version = "4", features = ["derive", "env"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Nostr/Buzz support
+bech32 = "0.11"
+
+# Post-quantum signatures (optional — enables FALCON-512 hybrid mode)
+pqcrypto-falcon = { version = "0.4", optional = true }
+pqcrypto-traits = { version = "0.3", optional = true }

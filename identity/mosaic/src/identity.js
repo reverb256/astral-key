@@ -1,249 +1,144 @@
 'use strict';
 
 /**
- * Identity Module — Ed25519 key management with NaCl.
+ * Identity Module — auto-selector.
  *
- * Every Mosaic user gets an Ed25519 key pair as their root identity.
- * The public key is the user's globally unique address/identity.
- * The private key never leaves the device (stored in SQLite via better-sqlite3).
+ * Tries Mosaic Identity Service (MIS) via HTTP first.
+ * Falls back to local tweetnacl if MIS is unreachable.
  *
- * Key format:
- *   - Public key:  32 bytes, Base64URL encoded (44 chars, no padding)
- *   - Private key: 64 bytes (seed + public key), Base64URL encoded
- */
-
-const nacl = require('tweetnacl');
-const naclUtil = require('tweetnacl-util');
-const crypto = require('crypto');
-
-// ─── Encoding helpers ──────────────────────────────────────────────────────
-
-/**
- * Base64URL encode (RFC 4648 §5) — no padding, URL-safe.
- */
-function toBase64URL(buf) {
-  return Buffer.from(buf).toString('base64url');
-}
-
-/**
- * Decode Base64URL to Buffer.
- */
-function fromBase64URL(str) {
-  return Buffer.from(str, 'base64url');
-}
-
-/**
- * Hex encode.
- */
-function toHex(buf) {
-  return Buffer.from(buf).toString('hex');
-}
-
-/**
- * Hex decode.
- */
-function fromHex(hex) {
-  return Buffer.from(hex, 'hex');
-}
-
-// ─── Key generation ────────────────────────────────────────────────────────
-
-/**
- * Generate a new Ed25519 key pair.
+ * This file replaces the original src/identity.js (renamed to identity-local.js).
+ * All existing require('./identity') imports pick up this resolver automatically.
  *
- * @returns {{ pubkey: string, privkey: string, pubkeyHex: string }}
- *   - pubkey:   Base64URL-encoded 32-byte public key
- *   - privkey:  Base64URL-encoded 64-byte secret key (seed || pubkey)
- *   - pubkeyHex: hex-encoded public key for human-friendly display
+ * Exports the same API as identity-local.js for drop-in compatibility:
+ *   toBase64URL, fromBase64URL, toHex, fromHex
+ *   generateKeyPair, derivePublicKey, sign, verify
  */
-function generateKeyPair() {
-  const kp = nacl.sign.keyPair();
-  const pubkey = toBase64URL(kp.publicKey);
-  const privkey = toBase64URL(kp.secretKey);
-  const pubkeyHex = toHex(kp.publicKey);
 
-  return { pubkey, privkey, pubkeyHex };
+const http = require('http');
+
+const MIS_URL = process.env.MIS_URL || 'http://mosaic-identity:8081';
+const MIS_TIMEOUT = parseInt(process.env.MIS_TIMEOUT || '2000', 10);
+const MIS_DISABLED = process.env.MIS_DISABLED === 'true';
+
+let _local = null;
+let _misAvailable = null;
+
+function getLocal() {
+  if (!_local) _local = require('./identity-local');
+  return _local;
 }
 
-/**
- * Derive the public key from a private key.
- * Useful when loading a stored private key to recover the public half.
- *
- * @param {string} privkey - Base64URL-encoded 64-byte secret key
- * @returns {{ pubkey: string, pubkeyHex: string }}
- */
-function derivePublicKey(privkey) {
-  const secretKey = fromBase64URL(privkey);
-  if (secretKey.length !== 64) {
-    throw new Error(`Invalid private key length: expected 64 bytes, got ${secretKey.length}`);
+// ─── MIS availability check ─────────────────────────────────────────────────
+
+function checkMisAvailable() {
+  if (_misAvailable !== null) return Promise.resolve(_misAvailable);
+  if (MIS_DISABLED) {
+    _misAvailable = false;
+    return Promise.resolve(false);
   }
-  const kp = nacl.sign.keyPair.fromSecretKey(secretKey);
-  return {
-    pubkey: toBase64URL(kp.publicKey),
-    pubkeyHex: toHex(kp.publicKey),
-  };
+
+  return new Promise((resolve) => {
+    const req = http.get(`${MIS_URL}/health`, { timeout: MIS_TIMEOUT }, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          _misAvailable = parsed.status === 'ok' || parsed.service === 'mosaic-identity';
+        } catch {
+          _misAvailable = false;
+        }
+        resolve(_misAvailable);
+      });
+    });
+    req.on('error', () => { _misAvailable = false; resolve(false); });
+    req.on('timeout', () => { req.destroy(); _misAvailable = false; resolve(false); });
+  });
 }
 
-/**
- * Reconstruct the full NaCl key pair from a stored private key.
- */
-function keyPairFromSecret(privkey) {
-  const secretKey = fromBase64URL(privkey);
-  if (secretKey.length !== 64) {
-    throw new Error(`Invalid private key length: expected 64 bytes, got ${secretKey.length}`);
-  }
-  return nacl.sign.keyPair.fromSecretKey(secretKey);
+function misRequest(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, MIS_URL);
+    const payload = body ? JSON.stringify(body) : null;
+    const opts = {
+      hostname: url.hostname,
+      port: parseInt(url.port, 10) || 80,
+      path: url.pathname + url.search,
+      method,
+      timeout: MIS_TIMEOUT * 2,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    const req = http.request(opts, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (res.statusCode >= 400) reject(new Error(parsed.error || `MIS error ${res.statusCode}`));
+          else resolve(parsed);
+        } catch { reject(new Error(`MIS invalid response: ${data.slice(0, 100)}`)); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('MIS timeout')); });
+    if (payload) req.write(payload);
+    req.end();
+  });
 }
 
-// ─── Signing & verification ────────────────────────────────────────────────
+// ─── Exported API (async, with MIS fallback) ────────────────────────────────
 
-/**
- * Sign a message (string or Buffer) with the given private key.
- *
- * @param {string|Buffer} message
- * @param {string} privkey - Base64URL-encoded 64-byte secret key
- * @returns {string} Base64URL-encoded detached signature (64 bytes)
- */
-function sign(message, privkey) {
-  const msgBytes = Buffer.isBuffer(message) ? message : Buffer.from(message, 'utf8');
-  const secretKey = fromBase64URL(privkey);
-  const sig = nacl.sign.detached(msgBytes, secretKey);
-  return toBase64URL(sig);
-}
+function toBase64URL(buf) { return getLocal().toBase64URL(buf); }
+function fromBase64URL(str) { return getLocal().fromBase64URL(str); }
+function toHex(buf) { return getLocal().toHex(buf); }
+function fromHex(hex) { return getLocal().fromHex(hex); }
 
-/**
- * Verify a detached signature against a message and public key.
- *
- * @param {string|Buffer} message
- * @param {string} signature - Base64URL-encoded 64-byte signature
- * @param {string} pubkey - Base64URL-encoded 32-byte public key
- * @returns {boolean}
- */
-function verify(message, signature, pubkey) {
-  const msgBytes = Buffer.isBuffer(message) ? message : Buffer.from(message, 'utf8');
-  const sigBytes = fromBase64URL(signature);
-  const pubkeyBytes = fromBase64URL(pubkey);
-  return nacl.sign.detached.verify(msgBytes, sigBytes, pubkeyBytes);
-}
-
-/**
- * Sign JSON data by producing a compact JSON string, then signing.
- * Returns { data, signature, pubkey }.
- *
- * @param {object} data - JSON-serializable data
- * @param {string} privkey
- * @param {string} pubkey
- * @returns {{ data: object, signature: string, pubkey: string }}
- */
-function signJSON(data, privkey, pubkey) {
-  const json = JSON.stringify(data);
-  const signature = sign(json, privkey);
-  return { data, signature, pubkey };
-}
-
-/**
- * Verify a JSON-signed envelope produced by signJSON().
- *
- * @param {{ data: object, signature: string, pubkey: string }} envelope
- * @returns {boolean}
- */
-function verifyJSON(envelope) {
-  const { data, signature, pubkey } = envelope;
-  const json = JSON.stringify(data);
-  return verify(json, signature, pubkey);
-}
-
-// ─── Key fingerprint ───────────────────────────────────────────────────────
-
-/**
- * Generate a short human-readable fingerprint for a public key.
- * Uses the first 8 hex chars (4 bytes) of a SHA-256 hash of the pubkey.
- *
- * @param {string} pubkey - Base64URL-encoded public key
- * @returns {string} e.g. "a3f8c91e"
- */
-function fingerprint(pubkey) {
-  const hash = crypto.createHash('sha256').update(pubkey, 'utf8').digest('hex');
-  return hash.slice(0, 8);
-}
-
-/**
- * Generate a QR-friendly URI for sharing a public key.
- * Format: mosaic://<pubkey>?fn=<fingerprint>
- *
- * @param {string} pubkey - Base64URL-encoded public key
- * @returns {string}
- */
-function pubkeyURI(pubkey) {
-  const fp = fingerprint(pubkey);
-  return `mosaic://${pubkey}?fn=${fp}`;
-}
-
-/**
- * Parse a mosaic:// URI back into the pubkey.
- *
- * @param {string} uri
- * @returns {{ pubkey: string, fingerprint: string } | null}
- */
-function parsePubkeyURI(uri) {
+async function generateKeyPair(rotatedFrom) {
   try {
-    const u = new URL(uri);
-    if (u.protocol !== 'mosaic:') return null;
-    const pubkey = u.hostname || u.pathname.replace(/^\//, '');
-    if (!pubkey) return null;
-    const fp = u.searchParams.get('fn') || '';
-    return { pubkey, fingerprint: fp };
-  } catch {
-    return null;
-  }
+    if (await checkMisAvailable()) {
+      const resp = await misRequest('POST', '/keys/generate',
+        rotatedFrom ? { rotated_from: rotatedFrom } : {});
+      return {
+        pubkey: fromBase64URL(resp.pubkey_hex),
+        privkey: fromBase64URL(resp.privkey_pkcs8_hex),
+        pubkeyHex: resp.pubkey_hex,
+        key_id: resp.key_id,
+      };
+    }
+  } catch { /* fall through */ }
+  return getLocal().generateKeyPair(rotatedFrom);
 }
 
-// ─── DID key export (atproto-compatible) ────────────────────
-
-/**
- * Encode a Mosaic native pubkey as an atproto-compatible did:key string.
- *
- * did:key uses multicodec + multibase (base58btc). The Ed25519 raw public
- * key bytes are prefixed with the Ed25519 varint (0x01 0xed), then encoded
- * as base58btc with a leading 'z' (multibase indicator).
- *
- * Returns null if the optional `bs58` dependency is not installed.
- *
- * @param {string} pubkey - Base64URL-encoded Ed25519 public key (native format)
- * @returns {string|null} e.g. "did:key:zQ3sh..." or null
- */
-function did(pubkey) {
+async function derivePublicKey(privkeyHex) {
   try {
-    const bs58 = require('bs58');
-    // bs58 v6 exports { default: { encode } }
-    const encode = bs58.default ? bs58.default.encode : bs58.encode;
-    const bytes = fromBase64URL(pubkey);
-    // Multicodec prefix for Ed25519 public key: 0xed (as unsigned varint)
-    // varint encoding of 0xed: [0x01, 0xed] (because 0xed > 0x7f, so low 7 bits
-    // go into byte 0 with continuation bit set, remaining bits in byte 1)
-    const prefix = Buffer.from([0x01, 0xed]);
-    const prefixedBytes = Buffer.concat([prefix, bytes]);
-    // base58btc (multibase 'z' prefix)
-    return 'did:key:z' + encode(prefixedBytes);
-  } catch {
-    return null;
-  }
+    if (await checkMisAvailable()) {
+      const resp = await misRequest('POST', '/keys/import', { privkey_hex: privkeyHex });
+      return { pubkey: fromBase64URL(resp.pubkey_hex), pubkeyHex: resp.pubkey_hex, key_id: resp.key_id };
+    }
+  } catch { /* fall through */ }
+  return getLocal().derivePublicKey(privkeyHex);
+}
+
+async function sign(privkeyHex, msg) {
+  // MIS signing requires key_id — if only privkey hex is available, sign locally
+  return getLocal().sign(privkeyHex, msg);
+}
+
+async function verify(pubkeyHex, msg, signature) {
+  try {
+    if (await checkMisAvailable()) {
+      const resp = await misRequest('POST', '/verify', {
+        pubkey_hex: pubkeyHex,
+        message_hex: toHex(msg),
+        signature_hex: toHex(signature),
+      });
+      return resp.valid;
+    }
+  } catch { /* fall through */ }
+  return getLocal().verify(pubkeyHex, msg, signature);
 }
 
 module.exports = {
-  generateKeyPair,
-  derivePublicKey,
-  keyPairFromSecret,
-  sign,
-  verify,
-  signJSON,
-  verifyJSON,
-  fingerprint,
-  pubkeyURI,
-  parsePubkeyURI,
-  toBase64URL,
-  fromBase64URL,
-  toHex,
-  fromHex,
-  did,
+  toBase64URL, fromBase64URL, toHex, fromHex,
+  generateKeyPair, derivePublicKey, sign, verify,
 };

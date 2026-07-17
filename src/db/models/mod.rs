@@ -11,11 +11,9 @@ pub mod session;
 pub mod user;
 pub mod web3;
 
-pub use api_key::{ApiKey, ApiKeySummary};
 pub use contact::Contact;
 pub use fido2::Fido2Credential;
 pub use identity::Identity;
 pub use nonce::Nonce;
-pub use session::{Session, SessionSummary};
 pub use user::User;
 pub use web3::Web3Wallet;

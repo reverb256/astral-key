@@ -80,6 +80,7 @@ impl User {
     }
 
     /// Delete user
+    #[allow(dead_code)]
     pub async fn delete(&self, pool: &SqlitePool) -> Result<()> {
         sqlx::query("DELETE FROM users WHERE id = ?1")
             .bind(self.id.to_string())

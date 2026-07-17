@@ -42,7 +42,8 @@ pub fn generate_api_key(environment: &str) -> Result<(String, String, String)> {
 /// Verify an API key against its stored Argon2id hash.
 ///
 /// Returns `true` if the key matches the hash, `false` otherwise.
-pub fn verify_api_key(key: &str, hash: &str) -> Result<bool> {
+#[allow(dead_code)]
+pub(crate) fn verify_api_key(key: &str, hash: &str) -> Result<bool> {
     let parsed_hash = PasswordHash::new(hash)
         .map_err(|e| AuthError::Internal(format!("Invalid password hash: {}", e)))?;
     let argon2 = Argon2::default();
@@ -52,6 +53,7 @@ pub fn verify_api_key(key: &str, hash: &str) -> Result<bool> {
 /// Extract the key prefix from a full API key.
 ///
 /// e.g. `"ak_prod_xxxxxxxxx"` → `"ak_prod_"`
+#[allow(dead_code)]
 pub fn extract_prefix(key: &str) -> &str {
     // Find the last underscore (separates environment from base58 payload)
     if let Some(pos) = key.rfind('_') {

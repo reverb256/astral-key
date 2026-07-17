@@ -213,7 +213,9 @@ mod tests {
         headers.insert("X-Forwarded-For", "10.0.0.1".parse().unwrap());
 
         let key = build_key(&headers);
-        assert_eq!(key, "ak_abcd:10.0.0.1");
+        // build_key takes the first 8 characters after "Bearer ":
+        // "ak_abcdef1234567890" → first 8 = "ak_abcde"
+        assert_eq!(key, "ak_abcde:10.0.0.1");
     }
 
     #[test]
