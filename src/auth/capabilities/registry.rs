@@ -13,6 +13,7 @@
 //! [`known_scopes`] to keep the registry consistent.
 
 /// Top-level scope namespaces defined by the astral-key capability model.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Namespace {
     /// Authentication operations (passkey, web3, token management)
@@ -31,6 +32,7 @@ pub enum Namespace {
 
 impl Namespace {
     /// Return the string prefix for this namespace.
+    #[allow(dead_code)]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Auth => "auth",
@@ -43,7 +45,7 @@ impl Namespace {
     }
 
     /// Parse a namespace from a string prefix.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "auth" => Some(Self::Auth),
             "key" => Some(Self::Key),
@@ -60,17 +62,7 @@ impl Namespace {
 ///
 /// Returns `true` if the scope is in the compile-time allowlist or is
 /// the `"admin"` wildcard.
-///
-/// ## Examples
-///
-/// ```ignore
-/// assert!(is_known_scope("dns:read"));
-/// assert!(is_known_scope("admin"));
-/// assert!(is_known_scope("mcp:tools:call:read"));
-///
-/// assert!(!is_known_scope("unknown:scope"));
-/// assert!(!is_known_scope("dns:delete"));   // Not registered
-/// ```
+#[allow(dead_code)]
 pub fn is_known_scope(scope: &str) -> bool {
     matches!(
         scope,
@@ -106,6 +98,7 @@ pub fn is_known_scope(scope: &str) -> bool {
 ///
 /// This is the source of truth for all valid scopes. The issuer should
 /// call this to validate requested scopes before minting a token.
+#[allow(dead_code)]
 pub fn known_scopes() -> Vec<&'static str> {
     vec![
         // Auth scopes
@@ -137,23 +130,13 @@ pub fn known_scopes() -> Vec<&'static str> {
 }
 
 /// Get the namespace prefix for a scope string.
-///
-/// Returns `None` for scopes that don't start with a known namespace
-/// or for the `"admin"` wildcard.
-///
-/// ## Examples
-///
-/// ```ignore
-/// assert_eq!(namespace_of("dns:write"), Some(Namespace::Dns));
-/// assert_eq!(namespace_of("admin"), None);
-/// assert_eq!(namespace_of("unknown:scope"), None);
-/// ```
+#[allow(dead_code)]
 pub fn namespace_of(scope: &str) -> Option<Namespace> {
     if scope == "admin" {
         return None;
     }
     let first_colon = scope.find(':')?;
-    Namespace::from_str(&scope[..first_colon])
+    Namespace::parse_str(&scope[..first_colon])
 }
 
 #[cfg(test)]
@@ -207,13 +190,13 @@ mod tests {
 
     #[test]
     fn test_namespace_from_str() {
-        assert_eq!(Namespace::from_str("auth"), Some(Namespace::Auth));
-        assert_eq!(Namespace::from_str("key"), Some(Namespace::Key));
-        assert_eq!(Namespace::from_str("jit"), Some(Namespace::Jit));
-        assert_eq!(Namespace::from_str("mcp"), Some(Namespace::Mcp));
-        assert_eq!(Namespace::from_str("dns"), Some(Namespace::Dns));
-        assert_eq!(Namespace::from_str("pages"), Some(Namespace::Pages));
-        assert_eq!(Namespace::from_str("unknown"), None);
+        assert_eq!(Namespace::parse_str("auth"), Some(Namespace::Auth));
+        assert_eq!(Namespace::parse_str("key"), Some(Namespace::Key));
+        assert_eq!(Namespace::parse_str("jit"), Some(Namespace::Jit));
+        assert_eq!(Namespace::parse_str("mcp"), Some(Namespace::Mcp));
+        assert_eq!(Namespace::parse_str("dns"), Some(Namespace::Dns));
+        assert_eq!(Namespace::parse_str("pages"), Some(Namespace::Pages));
+        assert_eq!(Namespace::parse_str("unknown"), None);
     }
 
     #[test]

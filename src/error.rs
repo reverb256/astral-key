@@ -16,9 +16,12 @@ use thiserror::Error;
 pub struct ErrorCode(&'static str);
 
 impl ErrorCode {
+    #[allow(dead_code)]
     pub const HEALTH_OK: Self = Self("HEALTH_OK");
     pub const INVALID_SIGNATURE: Self = Self("AUTH_INVALID_SIGNATURE");
+    #[allow(dead_code)]
     pub const EXPIRED_TOKEN: Self = Self("AUTH_EXPIRED_TOKEN");
+    #[allow(dead_code)]
     pub const INSUFFICIENT_SCOPE: Self = Self("AUTH_INSUFFICIENT_SCOPE");
     pub const NOT_FOUND: Self = Self("AUTH_NOT_FOUND");
     pub const INTERNAL: Self = Self("AUTH_INTERNAL_ERROR");
@@ -51,15 +54,18 @@ pub enum AuthError {
     #[error("JWT error: {0}")]
     Jwt(String),
 
+    #[allow(dead_code)]
     #[error("Web3 error: {0}")]
     Web3(String),
 
+    #[allow(dead_code)]
     #[error("FIDO2 error: {0}")]
     Fido2(String),
 
     #[error("Config error: {0}")]
     Config(String),
 
+    #[allow(dead_code)]
     #[error("Validation error: {0}")]
     Validation(String),
 
@@ -78,6 +84,7 @@ pub enum AuthError {
     #[error("Bad request: {0}")]
     BadRequest(String),
 
+    #[allow(dead_code)]
     #[error("Not implemented: {0}")]
     NotImplemented(String),
 }

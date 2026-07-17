@@ -42,7 +42,7 @@ pub async fn store_nonce(state: &AppState, nonce: &str) -> Result<()> {
 pub async fn validate_nonce(state: &AppState, nonce: &str) -> Result<bool> {
     let pool = state.db.inner();
     let record = Nonce::get_by_nonce(pool, nonce).await?;
-    Ok(record.as_ref().map_or(false, |n| n.is_valid()))
+    Ok(record.as_ref().is_some_and(|n| n.is_valid()))
 }
 
 /// Consume (mark as used) nonce

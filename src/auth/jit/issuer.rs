@@ -115,6 +115,7 @@ impl JitIssuer {
     /// - Mass token invalidation
     ///
     /// Returns the **new** epoch value after incrementing.
+    #[allow(dead_code)]
     pub fn increment_epoch(&self) -> u64 {
         // fetch_add returns the old value; +1 gives the new value
         self.epoch

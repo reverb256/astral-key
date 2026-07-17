@@ -132,6 +132,7 @@ impl Nonce {
     }
 
     /// Delete expired nonces
+    #[allow(dead_code)]
     pub async fn delete_expired(pool: &SqlitePool) -> Result<u64> {
         let now = Utc::now().to_rfc3339();
         let result = sqlx::query("DELETE FROM nonces WHERE expires_at < ?1")
@@ -142,6 +143,7 @@ impl Nonce {
     }
 
     /// Delete all used nonces
+    #[allow(dead_code)]
     pub async fn delete_old_used(pool: &SqlitePool, _days: i64) -> Result<u64> {
         // Simpler approach for SQLite: delete all used nonces
         let result = sqlx::query("DELETE FROM nonces WHERE used_at IS NOT NULL")

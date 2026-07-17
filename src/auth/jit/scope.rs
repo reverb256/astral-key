@@ -38,6 +38,7 @@
 /// let admin = vec!["admin".to_string()];
 /// assert!(satisfies(&admin, &["anything:at:all".to_string()]));
 /// ```
+#[allow(dead_code)]
 pub fn satisfies(token_scopes: &[String], required: &[String]) -> bool {
     // Admin wildcard overrides all checks
     if token_scopes.iter().any(|s| s == "admin") {
@@ -72,6 +73,7 @@ pub fn satisfies(token_scopes: &[String], required: &[String]) -> bool {
 /// assert!(!is_valid_scope(":leading-colon"));
 /// assert!(!is_valid_scope("trailing-colon:"));
 /// ```
+#[allow(dead_code)]
 pub fn is_valid_scope(s: &str) -> bool {
     // Wildcard
     if s == "admin" {

@@ -2,42 +2,59 @@
 
 # Astral Key
 
-**Single-binary auth sidecar — FIDO2/WebAuthn passkeys, Web3/SIWE, and JWT sessions**
+**Passkey-first authentication middleware — self-hosted, Web3-ready, NixOS-native**
 
 [![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)](https://rust-lang.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![NixOS](https://img.shields.io/badge/NixOS-5277C3?logo=nixos&logoColor=white)](https://nixos.org)
+[![SecretSpec](https://img.shields.io/badge/SecretSpec-ready-8B5CF6)](https://secretspec.dev)
 
 </div>
 
 Astral Key is an open-source authentication middleware written in Rust
-([Axum](https://github.com/tokio-rs/axum)). It is designed as a
-**single-binary sidecar** — embed it next to your application and let it
-handle passkey and Web3 authentication. No external database, cache, or
-credential store is required: everything is backed by **SQLite**.
+([Axum](https://github.com/tokio-rs/axum)). It authenticates users with
+**FIDO2/WebAuthn passkeys** (Touch ID, Windows Hello, YubiKey) and
+**Web3/SIWE** (Ethereum wallet signatures), and issues JWT sessions.
+
+**Key differentiator:** Astral Key is the *only* self-hostable auth service that
+combines passkey-native + Web3 wallet auth + a NixOS deployment module in a
+single Rust binary. It stores credentials in **Vaultwarden** (the backend you
+already run) or **SQLite** (standalone mode).
+
+---
+
+## Why Astral Key?
+
+Most auth services sit at one of two extremes:
+
+| Extreme | Examples | Problems |
+|---------|----------|----------|
+| **Cloud consumer auth** | Auth0, Clerk, Firebase Auth | You don't control the keys. Passkeys roam through Apple/Google/Microsoft clouds. |
+| **Enterprise SSO** | Keycloak, Authentik, Casdoor | Heavy (Java/Go), password-first, own database required. |
+
+Astral Key fills the **unoccupied middle**: lightweight (single Rust binary,
+~5MB), passkey-native (no passwords required), Web3-ready (SIWE wallet auth),
+self-hosted with Vaultwarden backend — deployable via a NixOS module in one
+line.
+
+### Who this is for
+
+- **NixOS homelab operators** running multi-service stacks (Grafana, Gitea, n8n, OpenWebUI, Nextcloud) who want **one passkey** to authenticate across all of them — with Vaultwarden as the credential store they already run.
+- **DAOs and Web3 communities** that want members to authenticate with their Ethereum wallet (SIWE) for gated access to Discourse, governance apps, or treasury dashboards. No email, no password.
+- **Privacy-conscious passkey users** who want self-hosted passkey roaming — keys sync through your own Bitwarden/Vaultwarden, not through Apple iCloud or Google Password Manager.
+- **AI agent platforms** that need scoped, revocable session tokens for agent tool access — authenticate once with a passkey, issue short-lived capability tokens to Claude Code, Hermes, or custom agents.
 
 ---
 
 ## Quick Start
-
-### With Cargo
-
-```bash
-# Clone and build
-git clone https://github.com/reverb256/astral-key.git
-cd astral-key
-JWT_SECRET=$(openssl rand -hex 32) cargo run
-
-# Test it
-curl http://localhost:8080/health
-```
 
 ### With Docker Compose
 
 ```bash
 git clone https://github.com/reverb256/astral-key.git
 cd astral-key
-JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
+export JWT_SECRET=$(openssl rand -hex 32)
+docker compose up -d
 curl http://localhost:8080/health
 ```
 
@@ -49,6 +66,23 @@ cargo build --release
 JWT_SECRET=$(openssl rand -hex 32) ./target/release/astral-key
 ```
 
+### With NixOS module (declarative)
+
+```nix
+# flake.nix
+{
+  inputs.astral-key.url = "github:reverb256/astral-key";
+
+  # In your host config:
+  imports = [ inputs.astral-key.nixosModules.default ];
+
+  services.astral-key = {
+    enable = true;
+    environmentFile = "/run/secrets/astral-key-env";
+  };
+}
+```
+
 ---
 
 ## Features
@@ -57,32 +91,34 @@ JWT_SECRET=$(openssl rand -hex 32) ./target/release/astral-key
 
 | Feature | Description |
 |---------|-------------|
-| **FIDO2 / WebAuthn Passkeys** | Register and authenticate with platform or roaming authenticators (Touch ID, Windows Hello, YubiKey, etc.). Full WebAuthn ceremony with challenge verification. |
-| **Web3 / SIWE** | Sign-In with Ethereum (EIP-4361). Generate nonces, verify signatures via `ethers-rs`, auto-create users and wallets. |
-| **JWT Sessions** | Access tokens (15 min) and refresh tokens (7 days). Token verification endpoint for external services. |
-| **SQLite Storage** | All state in a single SQLite database — users, Web3 wallets, FIDO2 credentials, session nonces. |
+| **FIDO2 / WebAuthn Passkeys** | Register and authenticate with platform or roaming authenticators. Full WebAuthn ceremony. |
+| **Web3 / SIWE** | Sign-In with Ethereum (EIP-4361). Multi-chain: Ethereum, Polygon, Arbitrum, Optimism. |
+| **JWT Sessions** | Access tokens + refresh token rotation. Verify endpoint for downstream services. |
+| **Vaultwarden Backend** | Store credentials in your existing Vaultwarden instance — no second database. |
+| **SQLite Storage** | Standalone mode with embedded SQLite. No external dependencies. |
 | **Passkey CRUD** | List and delete registered passkeys. |
-| **Multi-chain Support** | Ethereum, Polygon, Arbitrum, Optimism, Goerli, Sepolia. |
-| **GitHub OAuth** | Optional GitHub OAuth provider for additional login methods. |
+| **GitHub OAuth** | Optional GitHub login provider. |
 
 ### 🔜 Coming Soon
 
-- **API Key Management** — create, rotate, and revoke API keys for programmatic access
-- **ZK JIT Capability Tokens** — zero-knowledge just-in-time capability tokens for fine-grained authorization
-- **MCP Server** — Model Context Protocol server for AI agent integration
-- **Rate Limiting** — configurable request throttling per endpoint
-- **NixOS Module** — declarative NixOS service configuration
+| Feature | Target |
+|---------|--------|
+| **SecretSpec integration** | Declare secrets in `secretspec.toml`, resolve from any of 15 providers, inject via `secretspec run -- astral-key` |
+| **SOPS provider (building now)** | Encrypted config files decrypted via SecretSpec, keys resolved through astral-key's Vaultwarden auth |
+| **Vault-compatible endpoint** | Expose `/v1/secret/data/<path>` so SecretSpec's existing `vault` provider can read secrets from astral-key — no SecretSpec fork needed |
+| **OIDC provider** | Single passkey for your entire homelab stack — Grafana, Gitea, OpenWebUI, etc. via standard OIDC |
+| **AI agent tokens** | Short-lived, scoped, revocable tokens for agent tool access |
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌────────┐
-│   Client     │────>│   Astral Key     │────>│ SQLite │
-│ (Browser /   │     │   (Axum API)     │     │  (DB)  │
-│  Wallet)     │<────│   Port 8080      │<────│        │
-└──────────────┘     └──────────────────┘     └────────┘
+┌──────────────┐     ┌──────────────────┐     ┌──────────────┐
+│   Client     │────>│   Astral Key     │────>│  Vaultwarden  │
+│ (Browser /   │     │   (Axum API)     │     │  (or SQLite)  │
+│  Wallet)     │<────│   Port 8080      │<────│              │
+└──────────────┘     └──────────────────┘     └──────────────┘
                           │
                      ┌────┴────┐
                      │ In-Memory│
@@ -91,11 +127,39 @@ JWT_SECRET=$(openssl rand -hex 32) ./target/release/astral-key
                      └─────────┘
 ```
 
-There is no PostgreSQL, no Redis, no Vaultwarden, and no external cache.
-The server runs as a single process with a single SQLite file.
+The server authenticates users via passkey or wallet → issues JWT sessions.
+Credentials persist in Vaultwarden (production) or SQLite (dev/standalone).
 
-See [`docs/architecture.md`](docs/architecture.md) for detailed flow diagrams
-and module descriptions.
+### SecretSpec integration
+
+```
+secretspec.toml  ──declares──> astral-key secrets (JWT_SECRET, DATABASE_URL, SIWE config)
+                      │
+                 ┌────┴────┐
+                 │ 15 providers │
+                 │ · keyring    │
+                 │ · vault      │
+                 │ · dotenv     │
+                 │ · 1Password  │
+                 │ · bws        │
+                 └─────────────┘
+```
+
+Each environment resolves secrets from a different provider without changing
+code. Dev uses `dotenv`, CI uses `env`, production uses `vault`/`bws`.
+
+**Provider credentials chain** (what we're building for the SOPS provider):
+```
+keyring://  ──unlocks──>  Vaultwarden  ──serves──>  astral-key secrets
+                                                            │
+                                                            ▼
+                                               sops://files encrypted
+                                               with age key from vaultwarden
+```
+
+The same architecture applies to astral-key itself — its JWT signing key can
+live in Vaultwarden, resolved at startup via SecretSpec, never in a config
+file.
 
 ---
 
@@ -111,36 +175,52 @@ and module descriptions.
 | `POST /api/v1/auth/fido2/register/options` | JWT | Start passkey registration |
 | `POST /api/v1/auth/fido2/register/verify` | JWT | Complete passkey registration |
 | `POST /api/v1/auth/fido2/authenticate/options` | — | Start passkey authentication |
-| `POST /api/v1/auth/fido2/authenticate/verify` | — | Complete passkey authentication → JWT |
+| `POST /api/v1/auth/fido2/authenticate/verify` | — | Complete passkey auth → JWT |
 | `GET /api/v1/auth/fido2/credentials` | JWT | List registered passkeys |
 | `DELETE /api/v1/auth/fido2/credentials/:id` | JWT | Delete a passkey |
-| `POST /api/v1/auth/verify` | — | Verify a JWT token |
 
-Full API reference with curl examples: [`docs/api.md`](docs/api.md)
+Full API reference: [`docs/api.md`](docs/api.md)
 
 ---
 
 ## Configuration
 
-All configuration is via environment variables. There is no configuration
-file.
+All configuration is via environment variables.
 
 ```bash
-# Required: JWT signing key (at least 32 bytes)
+# Required
 export JWT_SECRET=$(openssl rand -hex 32)
 
 # Optional overrides
 export SERVER_HOST=0.0.0.0
 export SERVER_PORT=8080
-export DATABASE_URL="sqlite:/data/astral-key.db?mode=rwc"
+export DATABASE_URL="sqlite:/data/astral-key.db?mode=rwc"   # or vaultwarden://...
 export FIDO2_RP_ID=localhost
 export FIDO2_RP_NAME="My App"
 export FIDO2_ORIGINS=http://localhost:8080
-export RUST_LOG=info,astral_key=debug
 ```
 
-Full environment variable reference: [`docs/deployment.md`](docs/deployment.md#environment-variables)
-Example files: [`config.example.yaml`](config.example.yaml), [`.env.example`](.env.example)
+**With SecretSpec** (recommended):
+
+```toml
+# secretspec.toml
+[project]
+name = "astral-key"
+revision = "1.0"
+
+[profiles.default]
+JWT_SECRET = { description = "JWT signing key (256-bit hex)", required = true }
+DATABASE_URL = { description = "SQLite or Vaultwarden DSN", required = false, default = "sqlite://./astral-key.db?mode=rwc" }
+FIDO2_RP_NAME = { description = "Relying Party name", required = false, default = "Astral Key" }
+
+[profiles.production]
+JWT_SECRET = { providers = ["vault://http://vault:8200"] }
+DATABASE_URL = { providers = ["vault://http://vault:8200"] }
+```
+
+```bash
+secretspec run -- astral-key
+```
 
 ---
 
@@ -150,9 +230,24 @@ Example files: [`config.example.yaml`](config.example.yaml), [`.env.example`](.e
 |----------|-------------|
 | [`docs/architecture.md`](docs/architecture.md) | Module layout and authentication flows |
 | [`docs/api.md`](docs/api.md) | Full API reference with curl examples |
-| [`docs/deployment.md`](docs/deployment.md) | Docker Compose, Nix, K8s, env reference |
+| [`docs/deployment.md`](docs/deployment.md) | Docker Compose, Nix, K8s, SecretSpec |
 | [`docs/errors.md`](docs/errors.md) | Error code reference |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to build, test, and submit PRs |
+
+---
+
+## Related Projects
+
+| Project | Comparison |
+|---------|------------|
+| **Pocket-ID** | Passkey auth, own DB, no Web3, no NixOS module |
+| **Hanko** | Passkey + password, own DB, cloud-dependent |
+| **Casdoor** | OIDC/SAML/Web3, own DB, Go, heavy |
+| **Authelio** | FIDO2 only, no Web3, no NixOS |
+| **Keycloak** | Full-featured SSO, Java, heavy, no Web3 |
+
+Astral Key is the only self-hostable auth service that combines **passkey-native
++ Web3 wallet + Vaultwarden backend + NixOS module** in a single Rust binary.
 
 ---
 

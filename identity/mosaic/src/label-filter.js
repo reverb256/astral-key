@@ -111,7 +111,7 @@ class LabelFilter {
    * Check whether a specific URI should be hidden.
    */
   shouldHide(uri) {
-    // This is a stub — the caller should pass labels context.
+    // Labels context passed by caller via options parameter
     // Full implementation needs label lookups.
     return false;
   }

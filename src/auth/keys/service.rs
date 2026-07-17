@@ -51,6 +51,7 @@ impl KeyService {
     /// Validate an API key by finding it via prefix match and verifying its Argon2id hash.
     ///
     /// Returns the matching `ApiKey` (with hash) if valid, or an `Unauthorized` error.
+    #[allow(dead_code)]
     pub async fn validate_key(pool: &SqlitePool, key: &str) -> Result<ApiKey> {
         let model = ApiKey::find_by_prefix_and_verify(pool, key)
             .await?
