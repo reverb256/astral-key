@@ -1,0 +1,37 @@
+[package]
+name = "mosaic-bridge-atproto"
+version = "0.1.0"
+description = "AT Protocol DID resolver daemon — bridges Mosaic identity ↔ Bluesky/AT Protocol"
+edition = "2021"
+license = "MIT"
+rust-version = "1.75"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full", "tracing"] }
+
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client (for PLC directory + bsky.social)
+reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
+
+# Shared Mosaic client types
+mosaic-client = { path = "../mosaic-client" }
+
+# Multibase decoding (base58btc for 'z' prefix, base64 for 'u' prefix)
+bs58 = "0.5"
+base64 = "0.22"
+
+# Hex encoding/decoding (for multibase key conversion)
+hex = "0.4"
+
+# Error handling / logging
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

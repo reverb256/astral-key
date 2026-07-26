@@ -143,10 +143,7 @@ impl AppState {
                         let verifier = JitVerifier::new();
                         verifier.add_issuer_key(&config.jit.issuer_id, &vk_bytes);
 
-                        (
-                            Some(Arc::new(issuer)),
-                            Some(Arc::new(verifier)),
-                        )
+                        (Some(Arc::new(issuer)), Some(Arc::new(verifier)))
                     }
                     Err(e) => {
                         tracing::error!("Failed to initialize JIT issuer: {}", e);

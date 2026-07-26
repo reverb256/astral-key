@@ -102,9 +102,9 @@ pub fn router(storage: Storage) -> Router {
         .route("/keys/{key_id}/history", get(key_history))
         .route("/sign", post(sign_handler))
         .route("/verify", post(verify_handler))
-    // PQ hybrid
-    .route("/sign/hybrid", post(sign_hybrid_handler))
-    .route("/verify/hybrid", post(verify_hybrid_handler))
+        // PQ hybrid
+        .route("/sign/hybrid", post(sign_hybrid_handler))
+        .route("/verify/hybrid", post(verify_hybrid_handler))
         .route("/bindings/resolve", post(bind_resolve))
         .route("/bindings/claim", post(bind_claim))
         .route("/keys/{key_id}/bindings", get(bind_list))
@@ -131,7 +131,12 @@ async fn key_generate(
     let (pubkey, privkey, key_id) = crypto::generate_key();
     state
         .storage
-        .insert_key(&pubkey, Some(&privkey), &key_id, req.rotated_from.as_deref())
+        .insert_key(
+            &pubkey,
+            Some(&privkey),
+            &key_id,
+            req.rotated_from.as_deref(),
+        )
         .await?;
 
     let created_at = state.storage.get_key(&key_id).await?.created_at;
@@ -217,10 +222,9 @@ async fn sign_handler(
     Json(req): Json<SignRequest>,
 ) -> Result<Json<SignResponse>, Error> {
     let key = state.storage.get_key(&req.key_id).await?;
-    let privkey = key
-        .privkey_pkcs8_hex
-        .as_deref()
-        .ok_or_else(|| Error::BadRequest("Cannot sign with this key: no private key stored".into()))?;
+    let privkey = key.privkey_pkcs8_hex.as_deref().ok_or_else(|| {
+        Error::BadRequest("Cannot sign with this key: no private key stored".into())
+    })?;
 
     let msg = hex::decode(&req.message_hex)
         .map_err(|_| Error::BadRequest("message_hex is not valid hex".into()))?;
@@ -359,8 +363,15 @@ async fn agent_cert_handler(
     let ttl = req.ttl_seconds.unwrap_or(3600).min(86400);
     let expires = chrono::Utc::now() + chrono::Duration::seconds(ttl as i64);
     let expires_str = expires.to_rfc3339();
-    let scope_str = if req.scope.is_empty() { "*".to_string() } else { req.scope.join(",") };
-    let payload = format!("agent-cert:{}:{}:{}:{}", key.pubkey_hex, req.agent_pubkey_hex, expires_str, scope_str);
+    let scope_str = if req.scope.is_empty() {
+        "*".to_string()
+    } else {
+        req.scope.join(",")
+    };
+    let payload = format!(
+        "agent-cert:{}:{}:{}:{}",
+        key.pubkey_hex, req.agent_pubkey_hex, expires_str, scope_str
+    );
     let sig = crate::crypto::sign(privkey, payload.as_bytes())?;
 
     let cert_data = serde_json::json!({
@@ -400,7 +411,12 @@ async fn bind_claim(
 
     state
         .storage
-        .upsert_binding(&req.key_id, &req.protocol, &req.external_id, req.proof.as_deref())
+        .upsert_binding(
+            &req.key_id,
+            &req.protocol,
+            &req.external_id,
+            req.proof.as_deref(),
+        )
         .await?;
 
     Ok(Json(serde_json::json!({
@@ -433,7 +449,10 @@ async fn resolve_external(
     State(state): State<SharedState>,
     Query(query): Query<ResolveQuery>,
 ) -> Result<Json<serde_json::Value>, Error> {
-    let binding = state.storage.resolve_external(&query.protocol, &query.id).await?;
+    let binding = state
+        .storage
+        .resolve_external(&query.protocol, &query.id)
+        .await?;
     let key = state.storage.get_key(&binding.key_id).await?;
 
     Ok(Json(serde_json::json!({
