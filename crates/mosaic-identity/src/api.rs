@@ -27,6 +27,14 @@ type SharedState = Arc<AppState>;
 #[derive(Deserialize)]
 pub struct KeyGenerateRequest {
     pub rotated_from: Option<String>,
+    /// Optional BIP-39 mnemonic phrase (24 English words). When provided,
+    /// keys are derived deterministically from the mnemonic + passphrase.
+    /// When omitted, random keys are generated (legacy behavior).
+    pub mnemonic: Option<String>,
+    /// BIP-39 passphrase (optional "25th word"), only meaningful when
+    /// `mnemonic` is set.
+    #[serde(default)]
+    pub passphrase: String,
 }
 
 #[derive(Serialize)]
@@ -128,11 +136,26 @@ async fn key_generate(
     State(state): State<SharedState>,
     Json(req): Json<KeyGenerateRequest>,
 ) -> Result<Json<KeyResponse>, Error> {
-    let (pubkey, privkey, key_id) = crypto::generate_key();
+    // Determine key material: mnemonic-based (deterministic) or random
+    let (pubkey, privkey, key_id) = if let Some(ref phrase) = req.mnemonic {
+        // Deterministic: BIP-39 mnemonic → seed → sub-keys
+        let seed = crate::hd::mnemonic_to_seed(phrase, &req.passphrase)?;
+        let (privkey_hex, pubkey_hex, kid) = crate::hd::derive_ed25519_from_seed(&seed);
+        (pubkey_hex, Some(privkey_hex), kid)
+    } else {
+        // Random (legacy path)
+        let (pubkey, privkey, kid) = crate::crypto::generate_key();
+        (pubkey, Some(privkey), kid)
+    };
 
     // Mint a companion ML-DSA-65 keypair when the `pq` feature is enabled.
     let (ml_pk, ml_sk) = if cfg!(feature = "pq") {
-        crypto::generate_mldsa_keypair()
+        if let Some(ref phrase) = req.mnemonic {
+            let seed = crate::hd::mnemonic_to_seed(phrase, &req.passphrase)?;
+            crate::hd::derive_mldsa_from_seed(&seed)
+        } else {
+            crate::crypto::generate_mldsa_keypair()
+        }
     } else {
         (String::new(), String::new())
     };
@@ -142,7 +165,7 @@ async fn key_generate(
         .storage
         .insert_key(
             &pubkey,
-            Some(&privkey),
+            privkey.as_deref(),
             &key_id,
             req.rotated_from.as_deref(),
             if has_pq { Some(&ml_pk) } else { None },
@@ -154,7 +177,7 @@ async fn key_generate(
     Ok(Json(KeyResponse {
         pubkey_hex: pubkey,
         key_id,
-        privkey_pkcs8_hex: Some(privkey),
+        privkey_pkcs8_hex: privkey,
         algorithm: if has_pq { "Ed25519+ML-DSA-65".into() } else { "Ed25519".into() },
         created_at,
         rotated_from: req.rotated_from,

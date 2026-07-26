@@ -136,8 +136,7 @@ impl MosaicClient {
     /// Create a client from the MIS_URL environment variable,
     /// falling back to `http://localhost:8081`.
     pub fn from_env() -> Self {
-        let url = std::env::var("MIS_URL")
-            .unwrap_or_else(|_| "http://localhost:8081".to_string());
+        let url = std::env::var("MIS_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
         Self::from_url(&url).expect("Invalid MIS_URL")
     }
 
@@ -183,9 +182,7 @@ impl MosaicClient {
         Ok(self.client.post(url).json(body).send().await?)
     }
 
-    async fn check_response(
-        resp: reqwest::Response,
-    ) -> Result<serde_json::Value, Error> {
+    async fn check_response(resp: reqwest::Response) -> Result<serde_json::Value, Error> {
         let status = resp.status();
         let body: serde_json::Value = resp.json().await?;
         if status.is_client_error() || status.is_server_error() {
@@ -225,7 +222,9 @@ impl MosaicClient {
 
     /// Generate a new Ed25519 key pair.
     pub async fn generate_key(&self) -> Result<KeyGenerateResponse, Error> {
-        let val = self.post_json("/keys/generate", &serde_json::json!({})).await?;
+        let val = self
+            .post_json("/keys/generate", &serde_json::json!({}))
+            .await?;
         Ok(serde_json::from_value(val)?)
     }
 
@@ -237,7 +236,9 @@ impl MosaicClient {
 
     /// Get a specific key by ID.
     pub async fn get_key(&self, key_id: &str) -> Result<KeyInfo, Error> {
-        let val = self.get_json(&format!("/keys/{}", urlencoding(key_id))).await?;
+        let val = self
+            .get_json(&format!("/keys/{}", urlencoding(key_id)))
+            .await?;
         Ok(serde_json::from_value(val)?)
     }
 
