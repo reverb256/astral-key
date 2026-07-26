@@ -202,11 +202,7 @@ async fn send_telegram_message(
 }
 
 /// Fetch updates from Telegram via long-poll (30 s timeout).
-async fn fetch_updates(
-    client: &reqwest::Client,
-    token: &str,
-    offset: i64,
-) -> Result<Vec<Update>> {
+async fn fetch_updates(client: &reqwest::Client, token: &str, offset: i64) -> Result<Vec<Update>> {
     let url = format!(
         "{}?timeout=30&offset={}",
         bot_api_url(token, "getUpdates"),
@@ -298,13 +294,12 @@ async fn polling_loop(
                         let text = msg.text.as_deref().unwrap_or("<non-text>");
                         info!(
                             "Telegram msg [chat={} title={:?}] from {:?}: {text}",
-                            chat.id,
-                            chat.title,
-                            sender,
+                            chat.id, chat.title, sender,
                         );
                         debug!(
                             "Full message: chat_type={:?} chat_username={:?} from_bot={}",
-                            chat.chat_type, chat.username,
+                            chat.chat_type,
+                            chat.username,
                             msg.from.as_ref().map(|u| u.is_bot).unwrap_or(false),
                         );
                     }

@@ -14,10 +14,10 @@
 use crate::activitypub::{activity_id, activity_types};
 use crate::storage::ActivityPubStore;
 use anyhow::{Context, Result};
+use base64::Engine;
 use chrono::Utc;
 use ring::signature::{Ed25519KeyPair, KeyPair, UnparsedPublicKey, ED25519};
 use serde_json::Value;
-use base64::Engine;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
@@ -108,8 +108,8 @@ impl FederationService {
         );
 
         let signature_bytes = self.key_pair.sign(signing_string.as_bytes());
-        let signature_b64 = base64::engine::general_purpose::STANDARD
-            .encode(signature_bytes.as_ref());
+        let signature_b64 =
+            base64::engine::general_purpose::STANDARD.encode(signature_bytes.as_ref());
 
         let headers = SIGNED_HEADERS.join(" ");
 
@@ -127,9 +127,7 @@ impl FederationService {
     /// Parse an HTTP Signature header into its components.
     ///
     /// Returns `(key_id, headers_list, signature_base64)`.
-    fn parse_signature_header(
-        signature_header: &str,
-    ) -> Result<(String, Vec<String>, String)> {
+    fn parse_signature_header(signature_header: &str) -> Result<(String, Vec<String>, String)> {
         let mut key_id = String::new();
         let mut headers = String::new();
         let mut signature = String::new();
@@ -152,9 +150,7 @@ impl FederationService {
         }
 
         if key_id.is_empty() || signature.is_empty() {
-            anyhow::bail!(
-                "Invalid Signature header: missing keyId or signature fields"
-            );
+            anyhow::bail!("Invalid Signature header: missing keyId or signature fields");
         }
 
         let header_list: Vec<String> = if headers.is_empty() {
@@ -219,17 +215,10 @@ impl FederationService {
             .context(format!("Failed to fetch actor: {actor_url}"))?;
 
         if !resp.status().is_success() {
-            anyhow::bail!(
-                "Actor fetch returned {} for {}",
-                resp.status(),
-                actor_url
-            );
+            anyhow::bail!("Actor fetch returned {} for {}", resp.status(), actor_url);
         }
 
-        let actor: Value = resp
-            .json()
-            .await
-            .context("Failed to parse actor JSON")?;
+        let actor: Value = resp.json().await.context("Failed to parse actor JSON")?;
 
         let pubkey = actor
             .get("publicKey")
@@ -257,8 +246,7 @@ impl FederationService {
         signature_header: &str,
         headers: &std::collections::HashMap<String, String>,
     ) -> Result<String> {
-        let (key_id, header_list, signature_b64) =
-            Self::parse_signature_header(signature_header)?;
+        let (key_id, header_list, signature_b64) = Self::parse_signature_header(signature_header)?;
 
         // Reconstruct the signing string
         let signing_string = Self::build_verification_string(method, path, &header_list, headers);
@@ -272,12 +260,10 @@ impl FederationService {
         let pem = Self::fetch_actor_public_key(&key_id).await?;
 
         // Parse the PEM to extract raw Ed25519 public key bytes
-        let pubkey_bytes = pem_to_ed25519_pubkey(&pem)
-            .context("Failed to parse PEM public key")?;
+        let pubkey_bytes = pem_to_ed25519_pubkey(&pem).context("Failed to parse PEM public key")?;
 
         // Verify using ring
-        let public_key: UnparsedPublicKey<&[u8]> =
-            UnparsedPublicKey::new(&ED25519, &pubkey_bytes);
+        let public_key: UnparsedPublicKey<&[u8]> = UnparsedPublicKey::new(&ED25519, &pubkey_bytes);
         public_key
             .verify(signing_string.as_bytes(), &signature_bytes)
             .map_err(|_| anyhow::anyhow!("HTTP Signature verification failed"))?;
@@ -313,15 +299,18 @@ impl FederationService {
         let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
 
         // Build the body as JSON
-        let body_json = serde_json::to_string(activity_body)
-            .context("Failed to serialize activity")?;
+        let body_json =
+            serde_json::to_string(activity_body).context("Failed to serialize activity")?;
 
         // Compute digest header
         let digest = {
             let mut hasher = Sha256::new();
             hasher.update(body_json.as_bytes());
             let hash = hasher.finalize();
-            format!("SHA-256={}", base64::engine::general_purpose::STANDARD.encode(hash))
+            format!(
+                "SHA-256={}",
+                base64::engine::general_purpose::STANDARD.encode(hash)
+            )
         };
 
         // Build the Signature header
@@ -353,12 +342,15 @@ impl FederationService {
         let body_text = resp.text().await.unwrap_or_default();
 
         if status.is_success() || status.as_u16() == 202 {
-            tracing::info!("Delivered {} to {} (status: {})", activity_id_str, inbox_url, status);
+            tracing::info!(
+                "Delivered {} to {} (status: {})",
+                activity_id_str,
+                inbox_url,
+                status
+            );
             Ok(())
         } else {
-            anyhow::bail!(
-                "Delivery to {inbox_url} returned {status}: {body_text:.200}",
-            )
+            anyhow::bail!("Delivery to {inbox_url} returned {status}: {body_text:.200}",)
         }
     }
 
@@ -397,7 +389,10 @@ impl FederationService {
                 continue;
             }
 
-            if let Err(e) = self.deliver_to_inbox(&target_url, activity, activity_id_str).await {
+            if let Err(e) = self
+                .deliver_to_inbox(&target_url, activity, activity_id_str)
+                .await
+            {
                 tracing::warn!(
                     "Failed to deliver {} to {}: {:#}",
                     activity_id_str,
@@ -441,15 +436,13 @@ impl FederationService {
             },
         });
 
-        self.deliver_to_inbox(target_url, &accept, &accept_id).await?;
+        self.deliver_to_inbox(target_url, &accept, &accept_id)
+            .await?;
         Ok(())
     }
 
     /// Send a Remove activity for a follower that was removed.
-    pub async fn send_undo_follow(
-        &self,
-        follower_actor_id: &str,
-    ) -> Result<()> {
+    pub async fn send_undo_follow(&self, follower_actor_id: &str) -> Result<()> {
         let (inbox_url, shared_inbox_url) = fetch_actor_inbox(follower_actor_id).await?;
         let target_url = shared_inbox_url.as_deref().unwrap_or(&inbox_url);
         let actor_id = format!("https://{}/actor", self.domain);
@@ -516,9 +509,7 @@ fn pem_to_ed25519_pubkey(pem: &str) -> Result<Vec<u8>> {
         }
     }
 
-    anyhow::bail!(
-        "Could not find Ed25519 public key in PEM (expected 32-byte BIT STRING)"
-    );
+    anyhow::bail!("Could not find Ed25519 public key in PEM (expected 32-byte BIT STRING)");
 }
 
 /// PEM-encode an Ed25519 public key in SPKI format.
@@ -577,10 +568,7 @@ async fn fetch_actor_inbox(actor_id: &str) -> Result<(String, Option<String>)> {
         anyhow::bail!("Actor fetch returned {} for {}", resp.status(), actor_id);
     }
 
-    let actor: Value = resp
-        .json()
-        .await
-        .context("Failed to parse actor JSON")?;
+    let actor: Value = resp.json().await.context("Failed to parse actor JSON")?;
 
     let inbox = actor
         .get("inbox")
@@ -637,10 +625,7 @@ mod tests {
     fn test_reconstruct_from_seed() {
         let (kp1, seed_hex) = generate_key_pair().unwrap();
         let kp2 = key_pair_from_seed(&seed_hex).unwrap();
-        assert_eq!(
-            kp1.public_key().as_ref(),
-            kp2.public_key().as_ref()
-        );
+        assert_eq!(kp1.public_key().as_ref(), kp2.public_key().as_ref());
     }
 
     #[test]
@@ -666,7 +651,9 @@ mod tests {
 
         // Wrong message should fail
         let wrong_message = b"wrong message";
-        assert!(public_key.verify(wrong_message, signature.as_ref()).is_err());
+        assert!(public_key
+            .verify(wrong_message, signature.as_ref())
+            .is_err());
     }
 
     #[test]
@@ -679,9 +666,7 @@ mod tests {
     }
 
     // Test wrapper to call the private function
-    fn parse_signature_header_inner(
-        header: &str,
-    ) -> Result<(String, Vec<String>, String)> {
+    fn parse_signature_header_inner(header: &str) -> Result<(String, Vec<String>, String)> {
         FederationService::parse_signature_header(header)
     }
 }

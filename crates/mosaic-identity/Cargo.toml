@@ -48,8 +48,13 @@ clap = { version = "4", features = ["derive", "env"] }
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
-# Nostr/Buzz support
+# Story/Buzz support
 bech32 = "0.11"
+
+# BIP-39 mnemonic generation and HD key derivation (SLIP-10/BIP32-Ed25519)
+bip39 = { version = "2", features = ["rand"] }
+hmac = "0.12"
+pbkdf2 = "0.12"
 
 # Post-quantum signatures (optional — enables ML-DSA-65 hybrid mode, FIPS 204)
 pqcrypto-mldsa = { version = "0.1", optional = true }

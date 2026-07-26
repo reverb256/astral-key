@@ -24,8 +24,8 @@ mod federation;
 mod storage;
 
 use activitypub::{
-    activity_id, activity_types, note_id, Actor, Collection, OrderedCollection,
-    WebFingerLink, WebFingerResponse, AS_CONTEXT,
+    activity_id, activity_types, note_id, Actor, Collection, OrderedCollection, WebFingerLink,
+    WebFingerResponse, AS_CONTEXT,
 };
 use axum::{
     extract::{Query, State},
@@ -68,19 +68,20 @@ impl Config {
         let domain = std::env::var("ACTIVITYPUB_DOMAIN")
             .expect("ACTIVITYPUB_DOMAIN is required (e.g. mosaic.social)");
 
-        let name = std::env::var("ACTIVITYPUB_NAME")
-            .unwrap_or_else(|_| "Mosaic Bridge".to_string());
+        let name =
+            std::env::var("ACTIVITYPUB_NAME").unwrap_or_else(|_| "Mosaic Bridge".to_string());
 
         let data_dir = std::env::var("ACTIVITYPUB_DATA_DIR")
             .unwrap_or_else(|_| "./data/activitypub".to_string());
 
-        let mis_url = std::env::var("MIS_URL")
-            .unwrap_or_else(|_| "http://localhost:8081".to_string());
+        let mis_url =
+            std::env::var("MIS_URL").unwrap_or_else(|_| "http://localhost:8081".to_string());
 
-        let max_concurrent_deliveries: usize = std::env::var("ACTIVITYPUB_MAX_CONCURRENT_DELIVERIES")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(8);
+        let max_concurrent_deliveries: usize =
+            std::env::var("ACTIVITYPUB_MAX_CONCURRENT_DELIVERIES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(8);
 
         Self {
             port,
@@ -231,9 +232,7 @@ async fn get_actor(State(state): State<AppState>) -> Json<Actor> {
 ///
 /// The inbox is the collection of activities received *from* other servers.
 /// For now returns the most recently received activities.
-async fn get_inbox(
-    State(state): State<AppState>,
-) -> Json<OrderedCollection> {
+async fn get_inbox(State(state): State<AppState>) -> Json<OrderedCollection> {
     let base_url = format!("https://{}/inbox", state.config.domain);
     let outbox = state.store.get_outbox().await;
     Json(OrderedCollection::with_items(base_url, outbox))
@@ -334,10 +333,8 @@ async fn post_inbox(
 
                         if added {
                             // Send Accept activity back to the follower
-                            let activity_id_str = activity
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("");
+                            let activity_id_str =
+                                activity.get("id").and_then(|v| v.as_str()).unwrap_or("");
 
                             if let Err(e) = state
                                 .federation
@@ -368,13 +365,9 @@ async fn post_inbox(
                 .unwrap_or("");
 
             if obj_type == activity_types::FOLLOW {
-                let _ = state
-                    .store
-                    .remove_follower(actor_id)
-                    .await
-                    .map_err(|e| {
-                        warn!("Failed to remove follower: {e}");
-                    });
+                let _ = state.store.remove_follower(actor_id).await.map_err(|e| {
+                    warn!("Failed to remove follower: {e}");
+                });
             }
         }
         activity_types::CREATE | activity_types::UPDATE => {
@@ -407,9 +400,7 @@ async fn post_inbox(
 /// `GET /outbox` — return the outbox as an OrderedCollection.
 ///
 /// The outbox contains activities published *by* the bridge actor.
-async fn get_outbox(
-    State(state): State<AppState>,
-) -> Json<OrderedCollection> {
+async fn get_outbox(State(state): State<AppState>) -> Json<OrderedCollection> {
     let base_url = format!("https://{}/outbox", state.config.domain);
     let entries = state.store.get_outbox().await;
     Json(OrderedCollection::with_items(base_url, entries))
@@ -437,15 +428,12 @@ async fn post_outbox(
     // Generate ID and timestamp if not present
     let activity_uuid = uuid::Uuid::new_v4().to_string();
     if activity.get("id").map_or(true, |v| !v.is_string()) {
-        activity["id"] = serde_json::Value::String(activity_id(
-            &state.config.domain,
-            &activity_uuid,
-        ));
+        activity["id"] =
+            serde_json::Value::String(activity_id(&state.config.domain, &activity_uuid));
     }
 
     if activity.get("published").is_none() {
-        activity["published"] =
-            serde_json::Value::String(chrono::Utc::now().to_rfc3339());
+        activity["published"] = serde_json::Value::String(chrono::Utc::now().to_rfc3339());
     }
 
     // Ensure @context is present
@@ -520,9 +508,7 @@ async fn post_outbox(
 }
 
 /// `GET /followers` — list followers as a Collection.
-async fn get_followers(
-    State(state): State<AppState>,
-) -> Json<Collection> {
+async fn get_followers(State(state): State<AppState>) -> Json<Collection> {
     let base_url = format!("https://{}/followers", state.config.domain);
     let followers = state.store.get_followers().await;
     let items: Vec<serde_json::Value> = followers
@@ -533,17 +519,13 @@ async fn get_followers(
 }
 
 /// `GET /following` — list following (always empty for the bridge).
-async fn get_following(
-    State(state): State<AppState>,
-) -> Json<Collection> {
+async fn get_following(State(state): State<AppState>) -> Json<Collection> {
     let base_url = format!("https://{}/following", state.config.domain);
     Json(Collection::new(base_url))
 }
 
 /// `GET /users/:username` — aliased to `/actor` for Mastodon compatibility.
-async fn get_user_actor(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn get_user_actor(State(state): State<AppState>) -> impl IntoResponse {
     get_actor(State(state)).await
 }
 
@@ -576,10 +558,9 @@ async fn activitypub_content_type_middleware(
         .iter()
         .any(|p| path.starts_with(p) || path.as_str() == *p)
     {
-        response.headers_mut().insert(
-            "Content-Type",
-            "application/activity+json".parse().unwrap(),
-        );
+        response
+            .headers_mut()
+            .insert("Content-Type", "application/activity+json".parse().unwrap());
     }
 
     response
@@ -601,7 +582,9 @@ fn build_router(state: AppState) -> Router {
         // User alias for Mastodon compatibility
         .route("/users/:username", get(get_user_actor))
         // Middleware
-        .layer(axum::middleware::from_fn(activitypub_content_type_middleware))
+        .layer(axum::middleware::from_fn(
+            activitypub_content_type_middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -700,7 +683,9 @@ async fn main() -> anyhow::Result<()> {
 
     // ─── Initialize Ed25519 key pair ────────────────────────────────────────
     let (key_pair, public_key_hex, _seed_hex) = if let Some(env_key) =
-        std::env::var("ACTIVITYPUB_PRIVATE_KEY").ok().filter(|s| !s.is_empty())
+        std::env::var("ACTIVITYPUB_PRIVATE_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
     {
         // Load from environment variable
         let kp = key_pair_from_seed(&env_key)?;
@@ -725,10 +710,7 @@ async fn main() -> anyhow::Result<()> {
         (kp, pubkey_hex, seed)
     };
 
-    info!(
-        "Actor public key (hex): {}",
-        public_key_hex
-    );
+    info!("Actor public key (hex): {}", public_key_hex);
 
     // Build PEM-encoded public key for the Actor profile
     let pubkey_bytes = hex::decode(&public_key_hex)?;
@@ -740,11 +722,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // ─── Initialize federation service ──────────────────────────────────────
-    let federation = FederationService::new(
-        key_pair,
-        &config.domain,
-        config.max_concurrent_deliveries,
-    );
+    let federation =
+        FederationService::new(key_pair, &config.domain, config.max_concurrent_deliveries);
 
     // ─── Initialize MIS client (optional) ───────────────────────────────────
     let mis_client = if !config.mis_url.is_empty() {
