@@ -1,0 +1,13 @@
+# Multi-stage build for the Mosaic ↔ Haven adapter bridge.
+FROM rust:1-bookworm AS builder
+WORKDIR /src
+COPY . .
+RUN cargo build --release -p mosaic-bridge-haven
+
+FROM debian:bookworm-slim
+WORKDIR /app
+COPY --from=builder /src/target/release/mosaic-bridge-haven /app/mosaic-bridge-haven
+EXPOSE 8087
+ENV HAVEN_PORT=8087
+ENV MIS_URL=http://mosaic-identity:8081
+CMD ["/app/mosaic-bridge-haven"]
