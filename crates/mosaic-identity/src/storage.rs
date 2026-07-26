@@ -23,6 +23,10 @@ pub struct KeyRecord {
     pub algorithm: String,
     pub created_at: String,
     pub rotated_from: Option<String>,
+    /// ML-DSA-65 (FIPS 204) public key (hex). NULL if key predates PQ support.
+    pub ml_dsa_pubkey_hex: Option<String>,
+    /// ML-DSA-65 (FIPS 204) secret key (hex). NULL if key predates PQ support.
+    pub ml_dsa_privkey_hex: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow, serde::Serialize, serde::Deserialize)]
@@ -57,31 +61,64 @@ impl Storage {
     // ─── Keys ────────────────────────────────────────────────────────────────
 
     /// Insert a new key record.
+    ///
+    /// `ml_dsa_pubkey` / `ml_dsa_privkey` carry the optional ML-DSA-65 (FIPS 204)
+    /// keypair minted alongside the Ed25519 key. Both are `None` when the key
+    /// was created without the `pq` feature.
     pub async fn insert_key(
         &self,
         pubkey: &str,
         privkey: Option<&str>,
         key_id: &str,
         rotated_from: Option<&str>,
+        ml_dsa_pubkey: Option<&str>,
+        ml_dsa_privkey: Option<&str>,
     ) -> Result<(), Error> {
         sqlx::query(
-            "INSERT OR IGNORE INTO keys (key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from)
-             VALUES ($1, $2, $3, 'Ed25519', $4, $5)",
+            "INSERT OR IGNORE INTO keys \
+             (key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from, ml_dsa_pubkey_hex, ml_dsa_privkey_hex) \
+             VALUES ($1, $2, $3, 'Ed25519', $4, $5, $6, $7)",
         )
         .bind(key_id)
         .bind(pubkey)
         .bind(privkey)
         .bind(chrono::Utc::now().to_rfc3339())
         .bind(rotated_from)
+        .bind(ml_dsa_pubkey)
+        .bind(ml_dsa_privkey)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
+    /// Fetch the ML-DSA-65 keypair (hex) for a key, if it was minted with PQ.
+    pub async fn get_mldsa_keypair(
+        &self,
+        key_id: &str,
+    ) -> Result<(String, String), Error> {
+        let rec = sqlx::query_as::<_, KeyRecord>(
+            "SELECT key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from, \
+             ml_dsa_pubkey_hex, ml_dsa_privkey_hex FROM keys WHERE key_id = $1",
+        )
+        .bind(key_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Key not found: {}", key_id)))?;
+
+        let pk = rec
+            .ml_dsa_pubkey_hex
+            .ok_or_else(|| Error::Crypto("Key has no ML-DSA public key".into()))?;
+        let sk = rec
+            .ml_dsa_privkey_hex
+            .ok_or_else(|| Error::Crypto("Key has no ML-DSA secret key".into()))?;
+        Ok((pk, sk))
+    }
+
     /// Get a key record by key_id.
     pub async fn get_key(&self, key_id: &str) -> Result<KeyRecord, Error> {
         sqlx::query_as::<_, KeyRecord>(
-            "SELECT key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from
+            "SELECT key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from, \
+             ml_dsa_pubkey_hex, ml_dsa_privkey_hex \
              FROM keys WHERE key_id = $1",
         )
         .bind(key_id)
@@ -93,7 +130,8 @@ impl Storage {
     /// Get key by public key hex.
     pub async fn get_key_by_pubkey(&self, pubkey_hex: &str) -> Result<KeyRecord, Error> {
         sqlx::query_as::<_, KeyRecord>(
-            "SELECT key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from
+            "SELECT key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from, \
+             ml_dsa_pubkey_hex, ml_dsa_privkey_hex \
              FROM keys WHERE pubkey_hex = $1",
         )
         .bind(pubkey_hex)
@@ -105,7 +143,8 @@ impl Storage {
     /// List all keys (never exposes private key material).
     pub async fn list_keys(&self) -> Result<Vec<KeyRecord>, Error> {
         let rows = sqlx::query_as::<_, KeyRecord>(
-            "SELECT key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from
+            "SELECT key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from, \
+             ml_dsa_pubkey_hex, ml_dsa_privkey_hex \
              FROM keys ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)

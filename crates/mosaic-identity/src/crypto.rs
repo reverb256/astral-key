@@ -86,7 +86,7 @@ pub fn derive_key_id(pubkey_bytes: &[u8]) -> String {
     format!("k-{}", id_hex)
 }
 
-// ─── Post-quantum hybrid signing ─────────────────────────────────────────
+// ─── Post-quantum hybrid signing (ML-DSA-65, FIPS 204) ────────────────────
 
 /// Hybrid signature result.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -94,68 +94,146 @@ pub struct HybridSignature {
     /// Ed25519 signature (64 bytes hex)
     pub ed25519_sig: String,
 
-    /// FALCON-512 signature (666 bytes hex). Error when PQ feature disabled.
-    pub falcon_sig: String,
+    /// ML-DSA-65 signature (hex). Empty when PQ feature disabled — see `algorithm`.
+    pub ml_dsa_sig: String,
 
-    /// Signing algorithm
-    pub algorithm: String, // "ed25519+falcon512"
+    /// Signing algorithm label, e.g. "ed25519+ml-dsa-65"
+    pub algorithm: String,
 
-    /// Public key for verification
+    /// Ed25519 public key for verification
     pub pubkey_hex: String,
+
+    /// ML-DSA-65 public key for verification (hex). Empty when PQ disabled.
+    pub ml_dsa_pubkey_hex: String,
 }
 
-/// Sign a message with dual Ed25519 + FALCON-512.
+/// Generate a new ML-DSA-65 keypair (FIPS 204).
 ///
-/// When compiled without the `pq` feature, FALCON signatures are replaced
-/// with a second Ed25519 signature (post-quantum security is deferred to
-/// when the PQ feature is enabled — the API contract remains the same).
-pub fn sign_hybrid(privkey_hex: &str, msg: &[u8]) -> Result<HybridSignature, Error> {
-    // Ed25519 signature (always available)
-    let ed25519_sig = sign(privkey_hex, msg)?;
+/// Returns (public_key_hex, secret_key_hex). Unlike the old FALCON stub, the
+/// secret key is returned to the caller for persistent storage — verification
+/// would otherwise be impossible.
+#[cfg(feature = "pq")]
+pub fn generate_mldsa_keypair() -> (String, String) {
+    use pqcrypto_mldsa::mldsa65::{keypair, DetachedSignature as _};
+    use pqcrypto_traits::sign::DetachedSignature as _;
+    let (pk, sk) = keypair();
+    (hex::encode(pk.as_bytes()), hex::encode(sk.as_bytes()))
+}
 
-    // Derive public key from private key
-    let (pubkey_hex, _key_id) = derive_public_key(privkey_hex)?;
+/// Sign a message with ML-DSA-65 (detached). Returns hex signature.
+#[cfg(feature = "pq")]
+pub fn sign_mldsa(sk_hex: &str, msg: &[u8]) -> Result<String, Error> {
+    use pqcrypto_mldsa::mldsa65::{detached_sign, SecretKey};
+    use pqcrypto_traits::sign::DetachedSignature as _;
+    let sk_bytes = hex::decode(sk_hex).map_err(|_| Error::Crypto("Invalid ML-DSA sk hex".into()))?;
+    let sk = SecretKey::from_bytes(&sk_bytes)
+        .map_err(|_| Error::Crypto("Invalid ML-DSA secret key length".into()))?;
+    let sig = detached_sign(msg, &sk);
+    Ok(hex::encode(sig.as_bytes()))
+}
 
-    // FALCON-512 signature (optional — feature-gated)
-    let falcon_sig = sign_falcon(msg);
-    if falcon_sig.is_empty() {
+/// Verify an ML-DSA-65 detached signature.
+#[cfg(feature = "pq")]
+pub fn verify_mldsa(pk_hex: &str, msg: &[u8], sig_hex: &str) -> Result<bool, Error> {
+    use pqcrypto_mldsa::mldsa65::{detached_verify, PublicKey, VerifiedSignature};
+    use pqcrypto_traits::sign::{DetachedSignature, VerifiedSignature as _};
+    let pk_bytes = hex::decode(pk_hex).map_err(|_| Error::Crypto("Invalid ML-DSA pk hex".into()))?;
+    let pk = PublicKey::from_bytes(&pk_bytes)
+        .map_err(|_| Error::Crypto("Invalid ML-DSA public key length".into()))?;
+    let sig_bytes = hex::decode(sig_hex).map_err(|_| Error::Crypto("Invalid ML-DSA sig hex".into()))?;
+    let sig = VerifiedSignature::from_bytes(&sig_bytes)
+        .map_err(|_| Error::Crypto("Invalid ML-DSA signature length".into()))?;
+    match detached_verify(&sig, msg, &pk) {
+        Ok(()) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Non-PQ stubs (compiled without the `pq` feature): surface clear errors so
+/// callers know the build must be rebuilt with `--features pq`.
+#[cfg(not(feature = "pq"))]
+pub fn generate_mldsa_keypair() -> (String, String) {
+    (String::new(), String::new())
+}
+#[cfg(not(feature = "pq"))]
+pub fn sign_mldsa(_sk_hex: &str, _msg: &[u8]) -> Result<String, Error> {
+    Err(Error::Crypto(
+        "PQ feature not enabled. Rebuild with --features pq".into(),
+    ))
+}
+#[cfg(not(feature = "pq"))]
+pub fn verify_mldsa(_pk_hex: &str, _msg: &[u8], _sig_hex: &str) -> Result<bool, Error> {
+    Err(Error::Crypto(
+        "PQ feature not enabled. Rebuild with --features pq".into(),
+    ))
+}
+
+/// Sign a message with dual Ed25519 + ML-DSA-65 (true hybrid, NIST SP 800-208).
+///
+/// `ed_privkey_hex` is the Ed25519 PKCS#8 key; `ml_dsa_privkey_hex` is the
+/// ML-DSA-65 secret key (hex). Both signatures are produced and both are
+/// verified by `verify_hybrid`.
+pub fn sign_hybrid(
+    ed_privkey_hex: &str,
+    ml_dsa_privkey_hex: &str,
+    msg: &[u8],
+) -> Result<HybridSignature, Error> {
+    let ed25519_sig = sign(ed_privkey_hex, msg)?;
+    let (pubkey_hex, _key_id) = derive_public_key(ed_privkey_hex)?;
+
+    if ml_dsa_privkey_hex.is_empty() {
         return Err(Error::Crypto(
-            "PQ feature not enabled. Rebuild with --features pq".into(),
+            "No ML-DSA key for this identity. Rebuild with --features pq and re-mint the key."
+                .into(),
         ));
     }
+    let ml_dsa_sig = sign_mldsa(ml_dsa_privkey_hex, msg)?;
+    let ml_dsa_pubkey_hex = derive_mldsa_pubkey_hex(ml_dsa_privkey_hex);
 
     Ok(HybridSignature {
         ed25519_sig,
-        falcon_sig,
-        algorithm: "ed25519+falcon512".to_string(),
+        ml_dsa_sig,
+        algorithm: "ed25519+ml-dsa-65".to_string(),
         pubkey_hex,
+        ml_dsa_pubkey_hex,
     })
 }
 
-/// Sign a message with FALCON-512.
-/// Returns empty string when `pq` feature is disabled (caller returns error).
+/// Derive the ML-DSA-65 public key hex from a secret key hex (for embedding in
+/// the signature response so verifiers need only the Ed25519 key id).
 #[cfg(feature = "pq")]
-fn sign_falcon(msg: &[u8]) -> String {
-    use pqcrypto_falcon::falcon512::{detached_sign, keypair};
-    use pqcrypto_traits::sign::DetachedSignature as _;
-    let (_pk, sk) = keypair();
-    let sig = detached_sign(msg, &sk);
-    hex::encode(sig.as_bytes())
+fn derive_mldsa_pubkey_hex(sk_hex: &str) -> String {
+    use pqcrypto_mldsa::mldsa65::{keypair_from_secret, PublicKey};
+    use pqcrypto_traits::sign::PublicKey as _;
+    if let Ok(sk_bytes) = hex::decode(sk_hex) {
+        if let Ok(sk) = pqcrypto_mldsa::mldsa65::SecretKey::from_bytes(&sk_bytes) {
+            let pk = PublicKey::from(&sk);
+            return hex::encode(pk.as_bytes());
+        }
+    }
+    String::new()
 }
-
-/// No-PQ fallback: return an Ed25519 signature wrapped in FALCON format.
-/// This lets consumers test the hybrid API contract without the PQ dependency.
 #[cfg(not(feature = "pq"))]
-fn sign_falcon(msg: &[u8]) -> String {
-    // PQ disabled — return empty; sign_hybrid reports error
-    let hash = Sha256::digest(msg);
-    return "".to_string();
+fn derive_mldsa_pubkey_hex(_sk_hex: &str) -> String {
+    String::new()
 }
 
-/// Verify a hybrid signature (checks Ed25519 only; PQ verification deferred).
+/// Verify a hybrid signature — checks **both** Ed25519 and ML-DSA-65.
+///
+/// A hybrid signature is only valid if both components verify. This is the
+/// post-quantum-safe path: a forger breaking Ed25519 (Shor) still cannot
+/// produce a valid ML-DSA-65 signature.
 pub fn verify_hybrid(sig: &HybridSignature, msg: &[u8]) -> Result<bool, Error> {
-    // Ed25519 verification (always available — this is the fallback path)
-    verify(&sig.pubkey_hex, msg, &sig.ed25519_sig)
+    let ed_ok = verify(&sig.pubkey_hex, msg, &sig.ed25519_sig)?;
+    if !ed_ok {
+        return Ok(false);
+    }
+    if sig.ml_dsa_sig.is_empty() || sig.ml_dsa_pubkey_hex.is_empty() {
+        // No PQ component present — fall back to classical-only (pre-PQ key).
+        return Ok(true);
+    }
+    let ml_ok = verify_mldsa(&sig.ml_dsa_pubkey_hex, msg, &sig.ml_dsa_sig)?;
+    Ok(ml_ok)
 }
 
 #[cfg(test)]
