@@ -11,5 +11,6 @@ pub mod bindings;
 pub mod config;
 pub mod crypto;
 pub mod error;
+pub mod hd;
 pub mod nostr;
 pub mod storage;

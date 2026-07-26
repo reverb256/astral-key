@@ -105,10 +105,7 @@ impl ActivityPubStore {
                 .context("Failed to read outbox.json")?;
             let list: OutboxList =
                 serde_json::from_str(&data).context("Failed to parse outbox.json")?;
-            list.entries
-                .into_iter()
-                .map(|e| e.activity)
-                .collect()
+            list.entries.into_iter().map(|e| e.activity).collect()
         } else {
             Vec::new()
         };
@@ -131,8 +128,7 @@ impl ActivityPubStore {
         let list = FollowerList {
             followers: followers.to_vec(),
         };
-        let data = serde_json::to_string_pretty(&list)
-            .context("Failed to serialize followers")?;
+        let data = serde_json::to_string_pretty(&list).context("Failed to serialize followers")?;
         tokio::fs::write(&path, &data)
             .await
             .context("Failed to write followers.json")?;
@@ -151,8 +147,7 @@ impl ActivityPubStore {
                 })
                 .collect(),
         };
-        let data = serde_json::to_string_pretty(&list)
-            .context("Failed to serialize outbox")?;
+        let data = serde_json::to_string_pretty(&list).context("Failed to serialize outbox")?;
         tokio::fs::write(&path, &data)
             .await
             .context("Failed to write outbox.json")?;
@@ -178,7 +173,12 @@ impl ActivityPubStore {
     }
 
     /// Add a follower. Persists to disk.
-    pub async fn add_follower(&self, actor_id: &str, inbox_url: &str, shared_inbox: Option<&str>) -> Result<bool> {
+    pub async fn add_follower(
+        &self,
+        actor_id: &str,
+        inbox_url: &str,
+        shared_inbox: Option<&str>,
+    ) -> Result<bool> {
         let mut guard = self.inner.write().await;
         // Idempotent — no-op if already a follower
         if guard.followers.iter().any(|f| f.actor_id == actor_id) {
@@ -242,8 +242,7 @@ impl ActivityPubStore {
         let data = tokio::fs::read_to_string(&path)
             .await
             .context("Failed to read keys.json")?;
-        let km: KeyMaterial =
-            serde_json::from_str(&data).context("Failed to parse keys.json")?;
+        let km: KeyMaterial = serde_json::from_str(&data).context("Failed to parse keys.json")?;
         Ok(Some(km))
     }
 
