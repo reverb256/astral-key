@@ -5,7 +5,11 @@ CREATE TABLE IF NOT EXISTS keys (
     privkey_pkcs8_hex   TEXT,           -- NULL for keys we only import pubkey for
     algorithm           TEXT NOT NULL DEFAULT 'Ed25519',
     created_at          TEXT NOT NULL,
-    rotated_from        TEXT
+    rotated_from        TEXT,
+    -- Post-quantum (ML-DSA-65, FIPS 204) keypair, minted alongside Ed25519.
+    -- NULL when the key was created without the `pq` feature.
+    ml_dsa_pubkey_hex   TEXT,
+    ml_dsa_privkey_hex  TEXT
 );
 
 -- Identity bindings: links a Mosaic key to an external identity

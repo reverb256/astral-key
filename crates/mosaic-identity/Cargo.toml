@@ -8,7 +8,7 @@ rust-version = "1.75"
 
 [features]
 default = []
-pq = ["pqcrypto-falcon", "pqcrypto-traits"]
+pq = ["pqcrypto-mldsa", "pqcrypto-traits"]
 
 [dependencies]
 # Async runtime
@@ -51,6 +51,6 @@ chrono = { version = "0.4", features = ["serde"] }
 # Nostr/Buzz support
 bech32 = "0.11"
 
-# Post-quantum signatures (optional — enables FALCON-512 hybrid mode)
-pqcrypto-falcon = { version = "0.4", optional = true }
+# Post-quantum signatures (optional — enables ML-DSA-65 hybrid mode, FIPS 204)
+pqcrypto-mldsa = { version = "0.1", optional = true }
 pqcrypto-traits = { version = "0.3", optional = true }
