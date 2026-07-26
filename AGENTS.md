@@ -35,17 +35,7 @@ astral-key/
 │   │   ├── config.rs          # Environment-based config
 │   │   └── error.rs           # Error types
 │   └── migrations/001_init.sql
-├── identity/mosaic/           # Mosaic (Haven fork — Node.js chat + bridges)
-│   ├── src/
-│   │   ├── identity.js        # Auto-selector: MIS → local tweetnacl
-│   │   ├── identity-mis.js    # MIS HTTP client + tweetnacl fallback
-│   │   └── identity-local.js  # Original tweetnacl implementation
-│   └── bridges/               # Transport plugins (sidecar daemons)
-│       ├── atproto/index.js   # DID resolver daemon (port 8083)
-│       ├── buzz/index.js      # Nostr WebSocket relay
-│       ├── matrix/index.js    # Matrix Application Service
-│       ├── irc/index.js       # IRC TLS client
-│       └── lib/mis-client.js  # Shared MIS HTTP client
+├── crates/mosaic-bridge-haven/  # Haven adapter (Socket.IO) — see below
 ├── Cargo.toml                 # Workspace: root + crates/mosaic-identity
 ├── Containerfile              # Astral Key container build
 ├── Dockerfile.mosaic-identity # MIS container build

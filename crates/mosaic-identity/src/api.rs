@@ -129,6 +129,15 @@ async fn key_generate(
     Json(req): Json<KeyGenerateRequest>,
 ) -> Result<Json<KeyResponse>, Error> {
     let (pubkey, privkey, key_id) = crypto::generate_key();
+
+    // Mint a companion ML-DSA-65 keypair when the `pq` feature is enabled.
+    let (ml_pk, ml_sk) = if cfg!(feature = "pq") {
+        crypto::generate_mldsa_keypair()
+    } else {
+        (String::new(), String::new())
+    };
+    let has_pq = !ml_pk.is_empty();
+
     state
         .storage
         .insert_key(
@@ -136,6 +145,8 @@ async fn key_generate(
             Some(&privkey),
             &key_id,
             req.rotated_from.as_deref(),
+            if has_pq { Some(&ml_pk) } else { None },
+            if has_pq { Some(&ml_sk) } else { None },
         )
         .await?;
 
@@ -144,7 +155,7 @@ async fn key_generate(
         pubkey_hex: pubkey,
         key_id,
         privkey_pkcs8_hex: Some(privkey),
-        algorithm: "Ed25519".into(),
+        algorithm: if has_pq { "Ed25519+ML-DSA-65".into() } else { "Ed25519".into() },
         created_at,
         rotated_from: req.rotated_from,
     }))
@@ -157,7 +168,7 @@ async fn key_import(
     let (pubkey, key_id) = crypto::derive_public_key(&req.privkey_hex)?;
     state
         .storage
-        .insert_key(&pubkey, Some(&req.privkey_hex), &key_id, None)
+        .insert_key(&pubkey, Some(&req.privkey_hex), &key_id, None, None, None)
         .await?;
 
     let created_at = state.storage.get_key(&key_id).await?.created_at;
@@ -260,7 +271,7 @@ pub struct SignHybridRequest {
 #[derive(Serialize)]
 pub struct SignHybridResponse {
     pub ed25519_sig: String,
-    pub falcon_sig: String,
+    pub ml_dsa_sig: String,
     pub algorithm: String,
     pub pubkey_hex: String,
     pub key_id: String,
@@ -275,15 +286,19 @@ async fn sign_hybrid_handler(
         .privkey_pkcs8_hex
         .as_deref()
         .ok_or_else(|| Error::BadRequest("Cannot sign: no private key stored".into()))?;
+    let ml_dsa_privkey = key
+        .ml_dsa_privkey_hex
+        .clone()
+        .unwrap_or_default();
 
     let msg = hex::decode(&req.message_hex)
-        .map_err(|_| Error::BadRequest("message_hex not valid hex".into()))?;
+        .map_err(|_| Error::BadRequest("message_hex is not valid hex".into()))?;
 
-    let sig = crypto::sign_hybrid(privkey, &msg)?;
+    let sig = crypto::sign_hybrid(privkey, &ml_dsa_privkey, &msg)?;
 
     Ok(Json(SignHybridResponse {
         ed25519_sig: sig.ed25519_sig,
-        falcon_sig: sig.falcon_sig,
+        ml_dsa_sig: sig.ml_dsa_sig,
         algorithm: sig.algorithm,
         pubkey_hex: sig.pubkey_hex,
         key_id: req.key_id,
@@ -295,6 +310,12 @@ pub struct VerifyHybridRequest {
     pub pubkey_hex: String,
     pub message_hex: String,
     pub ed25519_sig: String,
+    /// ML-DSA-65 signature (hex). Optional for backward-compat with classical-only sigs.
+    #[serde(default)]
+    pub ml_dsa_sig: String,
+    /// ML-DSA-65 public key (hex). Optional; required when `ml_dsa_sig` is present.
+    #[serde(default)]
+    pub ml_dsa_pubkey_hex: String,
 }
 
 async fn verify_hybrid_handler(
@@ -304,8 +325,14 @@ async fn verify_hybrid_handler(
     let msg = hex::decode(&req.message_hex)
         .map_err(|_| Error::BadRequest("message_hex not valid hex".into()))?;
 
-    // Check Ed25519 portion of hybrid signature
-    let valid = crypto::verify(&req.pubkey_hex, &msg, &req.ed25519_sig)?;
+    let sig = crypto::HybridSignature {
+        ed25519_sig: req.ed25519_sig,
+        ml_dsa_sig: req.ml_dsa_sig,
+        algorithm: "ed25519+ml-dsa-65".to_string(),
+        pubkey_hex: req.pubkey_hex,
+        ml_dsa_pubkey_hex: req.ml_dsa_pubkey_hex,
+    };
+    let valid = crypto::verify_hybrid(&sig, &msg)?;
 
     Ok(Json(VerifyResponse { valid }))
 }
