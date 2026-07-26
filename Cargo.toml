@@ -40,7 +40,7 @@ webauthn-rs-core = "0.5"
 url = "2.5"
 
 # JWT
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.3"
 
 # Cryptography
 ring = "0.17"
