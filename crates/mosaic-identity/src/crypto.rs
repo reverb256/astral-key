@@ -52,12 +52,23 @@ pub fn derive_public_key(seed_hex: &str) -> Result<(String, String), Error> {
 
 /// Sign a message hash (32 bytes) with the private key.
 ///
-/// The private key is provided as PKCS#8 hex.
+/// The private key is provided as hex — either PKCS#8 v2 (48 bytes) or raw
+/// 32-byte Ed25519 seed (HD-derived, detected by length).
 pub fn sign(privkey_hex: &str, msg: &[u8]) -> Result<String, Error> {
-    let pkcs8 =
+    let key_bytes =
         hex::decode(privkey_hex).map_err(|_| Error::Crypto("Invalid hex in private key".into()))?;
-    let key_pair = Ed25519KeyPair::from_pkcs8(&pkcs8)
-        .map_err(|_| Error::Crypto("Invalid PKCS#8 key".into()))?;
+
+    let key_pair = if key_bytes.len() == 32 {
+        // Raw 32-byte seed (HD derivation path — from_seed_unchecked)
+        let mut seed = [0u8; 32];
+        seed.copy_from_slice(&key_bytes);
+        Ed25519KeyPair::from_seed_unchecked(&seed)
+            .map_err(|_| Error::Crypto("Invalid HD seed (rejected by ring)".into()))?
+    } else {
+        // PKCS#8 v2 format (legacy random generation)
+        Ed25519KeyPair::from_pkcs8(&key_bytes)
+            .map_err(|_| Error::Crypto("Invalid PKCS#8 key".into()))?
+    };
 
     let signature = key_pair.sign(msg);
     Ok(hex::encode(signature.as_ref()))
@@ -243,7 +254,7 @@ mod tests {
     #[test]
     fn test_generate_and_sign_roundtrip() {
         let (pubkey, privkey, key_id) = generate_key();
-        assert_eq!(key_id.len(), 19); // "k-" + 16 hex chars
+        assert_eq!(key_id.len(), 18); // "k-" + 16 hex chars
         assert_eq!(pubkey.len(), 64); // 32 bytes as hex
         assert!(privkey.len() > 64);
 

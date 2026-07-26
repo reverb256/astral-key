@@ -71,14 +71,17 @@ struct Config {
 
 impl Config {
     fn from_env() -> Self {
-        let token = std::env::var("DISCORD_BOT_TOKEN")
-            .expect("DISCORD_BOT_TOKEN must be set");
+        let token = std::env::var("DISCORD_BOT_TOKEN").expect("DISCORD_BOT_TOKEN must be set");
         let guild_id = std::env::var("DISCORD_GUILD_ID").ok();
         let port = std::env::var("DISCORD_PORT")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(8086);
-        Self { token, guild_id, port }
+        Self {
+            token,
+            guild_id,
+            port,
+        }
     }
 }
 
@@ -244,10 +247,7 @@ async fn send_message(
             .unwrap_or("unknown Discord API error")
             .to_string();
         warn!("Discord REST API returned {}: {}", status, err_msg);
-        Err((
-            status,
-            Json(ErrorResponse { error: err_msg }),
-        ))
+        Err((status, Json(ErrorResponse { error: err_msg })))
     }
 }
 
@@ -298,7 +298,11 @@ async fn try_resolve_user(
         None => format!("discord:dm:{}", user_id),
     };
 
-    match state.mis_client.resolve_binding("discord", &external_id).await {
+    match state
+        .mis_client
+        .resolve_binding("discord", &external_id)
+        .await
+    {
         Ok(binding) => {
             info!(
                 "Resolved Discord user {} → Mosaic key {} (pubkey: {})",
@@ -377,14 +381,14 @@ async fn run_gateway_session(state: &AppState) -> Result<(), String> {
     // ── Step 1: Wait for Hello ──────────────────────────────────────────────
     let hello_payload = receive_payload(&mut read).await?;
     if hello_payload.op != op::HELLO {
-        return Err(format!("Expected Hello (op 10), got op {}", hello_payload.op));
+        return Err(format!(
+            "Expected Hello (op 10), got op {}",
+            hello_payload.op
+        ));
     }
-    let hello_data: HelloData = serde_json::from_value(
-        hello_payload
-            .d
-            .ok_or("Hello payload missing data field")?,
-    )
-    .map_err(|e| format!("Failed to parse Hello data: {}", e))?;
+    let hello_data: HelloData =
+        serde_json::from_value(hello_payload.d.ok_or("Hello payload missing data field")?)
+            .map_err(|e| format!("Failed to parse Hello data: {}", e))?;
     info!(
         "Received Hello — heartbeat interval: {} ms",
         hello_data.heartbeat_interval
