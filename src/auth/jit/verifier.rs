@@ -23,10 +23,21 @@ use crate::auth::jit::{Capability, VerificationError, VerifiedClaims};
 ///
 /// Validates capability tokens using only cryptographic operations and
 /// in-memory state (epoch counter, revocation set, known issuer keys).
+///
+/// ## Post-quantum hybrid verification
+///
+/// Accepts both 3-part (Ed25519-only) and 4-part (Ed25519 + ML-DSA-65) tokens.
+/// When a 4-part token is presented and an ML-DSA-65 verifying key is
+/// registered for the token's issuer (via [`add_issuer_mldsa_key`],
+/// the ML-DSA signature is **also** verified; both must pass. A 4-part token
+/// with no registered ML-DSA key falls back to Ed25519-only verification and
+/// is accepted (graceful downgrade for verifiers that haven't been upgraded).
 #[allow(dead_code)]
 pub struct JitVerifier {
-    /// Mapping of `issuer_id -> VerifyingKey` for known issuers
+    /// Mapping of `issuer_id -> VerifyingKey` for known issuers (Ed25519)
     verifying_keys: std::sync::RwLock<HashMap<String, VerifyingKey>>,
+    /// Mapping of `issuer_id -> ML-DSA-65 PublicKey` (post-quantum)
+    mldsa_verifying_keys: std::sync::RwLock<HashMap<String, Vec<u8>>>,
     /// Current global epoch — tokens with `epoch < current` are rejected
     current_epoch: std::sync::atomic::AtomicU64,
     /// Set of revoked token IDs (maintained by `revoke_token()`)
@@ -41,13 +52,14 @@ impl JitVerifier {
     pub fn new() -> Self {
         Self {
             verifying_keys: std::sync::RwLock::new(HashMap::new()),
+            mldsa_verifying_keys: std::sync::RwLock::new(HashMap::new()),
             current_epoch: std::sync::atomic::AtomicU64::new(0),
             revoked_tokens: std::sync::RwLock::new(HashSet::new()),
             leeway_seconds: 5,
         }
     }
 
-    /// Register a trusted issuer's public key.
+    /// Register a trusted issuer's Ed25519 public key.
     ///
     /// The `public_key` must be a 32-byte Ed25519 verifying key.
     /// If the issuer is already registered, the key is **updated**.
@@ -58,6 +70,19 @@ impl JitVerifier {
         let vk = VerifyingKey::from_bytes(public_key).expect("Invalid Ed25519 verifying key bytes");
         let mut keys = self.verifying_keys.write().expect("Verifier lock poisoned");
         keys.insert(issuer_id.to_string(), vk);
+    }
+
+    /// Register a trusted issuer's ML-DSA-65 (FIPS 204) verifying key.
+    ///
+    /// `public_key_bytes` is the raw ML-DSA-65 public key bytes. After this,
+    /// 4-part hybrid tokens from `issuer_id` have their ML-DSA half verified.
+    #[allow(dead_code)]
+    pub fn add_issuer_mldsa_key(&self, issuer_id: &str, public_key_bytes: &[u8]) {
+        let mut keys = self
+            .mldsa_verifying_keys
+            .write()
+            .expect("Verifier lock poisoned");
+        keys.insert(issuer_id.to_string(), public_key_bytes.to_vec());
     }
 
     /// Set the current global epoch.
@@ -102,16 +127,19 @@ impl JitVerifier {
     /// Returns [`VerificationError`] on any validation failure.
     #[allow(dead_code)]
     pub fn verify(&self, token: &str) -> Result<VerifiedClaims, VerificationError> {
-        // Step 1: Split the token into 3 parts
+        // Step 1: Split the token into 3 or 4 parts.
+        //  3 parts = legacy Ed25519-only token.
+        //  4 parts = hybrid Ed25519 + ML-DSA-65 token (4th = ML-DSA sig b64).
         let parts: Vec<&str> = token.split('.').collect();
-        if parts.len() != 3 {
+        if parts.len() != 3 && parts.len() != 4 {
             return Err(VerificationError::Decode(
-                "Token must have exactly 3 dot-separated parts".to_string(),
+                "Token must have 3 or 4 dot-separated parts".to_string(),
             ));
         }
         let header_b64 = parts[0];
         let payload_b64 = parts[1];
         let sig_b64 = parts[2];
+        let mldsa_sig_b64 = parts.get(3).copied();
 
         // Decode base64 payload
         let payload_bytes = BASE64
@@ -155,6 +183,34 @@ impl JitVerifier {
         // Step 3: Verify Ed25519 signature
         vk.verify(signed_data.as_bytes(), &signature)
             .map_err(|_| VerificationError::InvalidSignature)?;
+
+        // Step 3b: Verify ML-DSA-65 hybrid signature (4-part tokens).
+        // If the token carries an ML-DSA half AND we have an ML-DSA key
+        // registered for this issuer, both halves MUST verify. If the token
+        // is 4-part but we have no registered ML-DSA key, we accept (graceful
+        // downgrade — a not-yet-upgraded verifier treats it as classical).
+        if let Some(mldsa_b64) = mldsa_sig_b64 {
+            let mldsa_keys = self
+                .mldsa_verifying_keys
+                .read()
+                .map_err(|_| VerificationError::Decode("Lock poisoned".to_string()))?;
+            if let Some(pk_bytes) = mldsa_keys.get(&capability.iss) {
+                let mldsa_sig_bytes = BASE64
+                    .decode(mldsa_b64)
+                    .map_err(|e| VerificationError::Decode(format!("ML-DSA sig base64: {}", e)))?;
+                use pqcrypto_mldsa::mldsa65::{verify_detached_signature, DetachedSignature, PublicKey};
+                use pqcrypto_traits::sign::{DetachedSignature as _, PublicKey as _};
+                let pk = PublicKey::from_bytes(pk_bytes).map_err(|_| {
+                    VerificationError::Decode("Invalid registered ML-DSA public key".to_string())
+                })?;
+                let sig_obj = DetachedSignature::from_bytes(&mldsa_sig_bytes)
+                    .map_err(|_| VerificationError::Decode("Invalid ML-DSA signature length".to_string()))?;
+                match verify_detached_signature(&sig_obj, signed_data.as_bytes(), &pk) {
+                    Ok(()) => {}
+                    Err(_) => return Err(VerificationError::InvalidSignature),
+                }
+            }
+        }
 
         // Step 4: Check expiry (with leeway)
         let now = chrono::Utc::now().timestamp();

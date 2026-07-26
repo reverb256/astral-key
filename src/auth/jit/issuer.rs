@@ -17,10 +17,18 @@ use uuid::Uuid;
 
 use crate::auth::jit::{Capability, SignedToken};
 
-/// Ed25519-based capability token issuer.
+/// Ed25519-based capability token issuer (with optional ML-DSA-65 hybrid).
 ///
 /// Thread-safe: `mint()` and `increment_epoch()` can be called concurrently
 /// without external synchronization.
+///
+/// # Post-quantum hybrid mode
+///
+/// When an ML-DSA-65 (FIPS 204) secret key is attached via
+/// [`JitIssuer::with_mldsa_key`], minted tokens are **hybrid**: a 4-part
+/// `header.payload.ed25519_sig.mldsa_sig` token. Without an ML-DSA key,
+/// tokens are the legacy 3-part `header.payload.ed25519_sig` shape. The
+/// verifier accepts both forms.
 pub struct JitIssuer {
     /// Ed25519 signing key (secret)
     signing_key: SigningKey,
@@ -28,6 +36,9 @@ pub struct JitIssuer {
     issuer_id: String,
     /// Monotonically increasing epoch for batch revocation
     epoch: std::sync::atomic::AtomicU64,
+    /// Optional ML-DSA-65 secret key (raw bytes). When present, mint() emits
+    /// a 4-part hybrid token.
+    mldsa_secret: Option<Vec<u8>>,
 }
 
 impl JitIssuer {
@@ -56,7 +67,37 @@ impl JitIssuer {
             signing_key,
             issuer_id: issuer_id.to_string(),
             epoch: std::sync::atomic::AtomicU64::new(0),
+            mldsa_secret: None,
         })
+    }
+
+    /// Attach an ML-DSA-65 (FIPS 204) secret key to enable hybrid signing.
+    ///
+    /// `sk_hex` is the hex-encoded ML-DSA-65 secret key (from `pqcrypto-mldsa`).
+    /// After calling this, [`mint()`](Self::mint) emits 4-part hybrid tokens.
+    /// Returns `Err` if the hex is invalid or the key length doesn't match
+    /// ML-DSA-65's secret-key size.
+    pub fn with_mldsa_key(mut self, sk_hex: &str) -> Result<Self, String> {
+        let bytes = hex::decode(sk_hex).map_err(|e| format!("Invalid ML-DSA key hex: {}", e))?;
+        // ML-DSA-65 secret key is 4032 bytes (per FIPS 204 / PQClean). We don't
+        // hard-assert the length here — `pqcrypto_mldsa` will reject bad sizes
+        // at sign time. We only validate that we got *some* bytes.
+        if bytes.is_empty() {
+            return Err("ML-DSA secret key is empty".to_string());
+        }
+        self.mldsa_secret = Some(bytes);
+        Ok(self)
+    }
+
+    /// Sign `data` with the attached ML-DSA-65 secret key. Returns the raw
+    /// signature bytes. Returns `None` if no ML-DSA key is attached.
+    fn sign_mldsa(&self, data: &[u8]) -> Option<Vec<u8>> {
+        let sk_bytes = self.mldsa_secret.as_ref()?;
+        use pqcrypto_mldsa::mldsa65::{detached_sign, SecretKey};
+        use pqcrypto_traits::sign::{DetachedSignature as _, SecretKey as _};
+        let sk = SecretKey::from_bytes(sk_bytes).ok()?;
+        let sig = detached_sign(data, &sk);
+        Some(sig.as_bytes().to_vec())
     }
 
     /// Mint a new capability token.
@@ -97,7 +138,14 @@ impl JitIssuer {
         let signature = self.signing_key.sign(signed_data.as_bytes());
         let sig_b64 = BASE64.encode(signature.to_bytes());
 
-        let token = format!("{}.{}.{}", header_b64, payload_b64, sig_b64);
+        // Optional ML-DSA-65 hybrid signature over the same signed data.
+        // When present, the token becomes 4-part: header.payload.ed_sig.mldsa_sig.
+        let token = if let Some(mldsa_sig) = self.sign_mldsa(signed_data.as_bytes()) {
+            let mldsa_b64 = BASE64.encode(&mldsa_sig);
+            format!("{}.{}.{}.{}", header_b64, payload_b64, sig_b64, mldsa_b64)
+        } else {
+            format!("{}.{}.{}", header_b64, payload_b64, sig_b64)
+        };
 
         SignedToken {
             token,

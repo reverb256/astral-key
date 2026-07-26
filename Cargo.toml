@@ -11,7 +11,7 @@ categories = ["authentication", "web-programming"]
 rust-version = "1.75"
 
 [workspace]
-members = [".", "crates/mosaic-identity", "crates/mosaic-client", "crates/mosaic-bridge-atproto", "crates/mosaic-bridge-buzz", "crates/mosaic-bridge-matrix", "crates/mosaic-bridge-irc", "crates/mosaic-bridge-activitypub", "crates/mosaic-bridge-telegram", "crates/mosaic-bridge-discord"]
+members = [".", "crates/mosaic-identity", "crates/mosaic-client", "crates/mosaic-bridge-atproto", "crates/mosaic-bridge-buzz", "crates/mosaic-bridge-matrix", "crates/mosaic-bridge-irc", "crates/mosaic-bridge-activitypub", "crates/mosaic-bridge-telegram", "crates/mosaic-bridge-discord", "crates/mosaic-bridge-haven"]
 
 [dependencies]
 # Core async runtime
@@ -79,6 +79,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Ed25519 for ZK JIT capability tokens
 ed25519-dalek = "2"
+
+# Post-quantum (ML-DSA-65, FIPS 204) for hybrid JIT/agent tokens
+pqcrypto-mldsa = "0.1"
+pqcrypto-traits = "0.3"
 
 # MCP server (optional)
 rmcp = { version = "2", features = ["transport-io", "schemars"], optional = true }
