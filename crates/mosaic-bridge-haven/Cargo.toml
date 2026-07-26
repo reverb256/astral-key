@@ -1,0 +1,36 @@
+[package]
+name = "mosaic-bridge-haven"
+version = "0.1.0"
+description = "Haven adapter bridge — connects Mosaic Identity Service (MIS) to a Haven server (Socket.IO) for identity-compatible chat"
+edition = "2021"
+license = "MIT"
+rust-version = "1.75"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Socket.IO client (Haven uses the `socket.io` Node package — wire protocol is
+# Socket.IO v4 over WebSocket; rust_socketio speaks the same protocol from Rust)
+rust_socketio = { version = "0.6", features = ["async"] }
+
+# Web framework (HTTP server for /health and /send)
+axum = { version = "0.7", features = ["macros"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client (for Haven REST auth + MIS probing)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+mosaic-client = { path = "../mosaic-client" }
+
+# Error handling + logging
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Stream utilities (callback boxing for rust_socketio)
+futures-util = "0.3"
