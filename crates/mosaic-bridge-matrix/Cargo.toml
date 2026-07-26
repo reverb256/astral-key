@@ -1,0 +1,38 @@
+[package]
+name = "mosaic-bridge-matrix"
+version = "0.1.0"
+edition = "2021"
+description = "Mosaic ↔ Matrix Application Service bridge"
+license = "MIT"
+
+[dependencies]
+# Core async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# MIS client
+mosaic-client = { path = "../mosaic-client" }
+
+# URL encoding
+url = "2"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# UUID for transaction IDs
+uuid = { version = "1", features = ["v4"] }

@@ -200,8 +200,8 @@ pub async fn credentials(
 ) -> Result<Json<Vec<CredentialInfo>>> {
     let pool = state.db.inner();
 
-    let credentials = crate::db::models::Fido2Credential::get_by_user(pool, auth_user.user_id)
-        .await?;
+    let credentials =
+        crate::db::models::Fido2Credential::get_by_user(pool, auth_user.user_id).await?;
 
     let credential_infos: Vec<CredentialInfo> = credentials
         .into_iter()

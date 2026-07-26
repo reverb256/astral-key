@@ -54,21 +54,15 @@ pub async fn resolve(input: &str) -> Result<ResolvedIdentity, Error> {
         .map(|a| a.trim_start_matches("at://").to_string());
 
     // Extract PDS
-    let pds = doc
-        .service
-        .as_ref()
-        .and_then(|services| {
-            services
-                .iter()
-                .find(|s| s.type_ == "AtprotoPersonalDataServer")
-                .map(|s| s.service_endpoint.clone())
-        });
+    let pds = doc.service.as_ref().and_then(|services| {
+        services
+            .iter()
+            .find(|s| s.type_ == "AtprotoPersonalDataServer")
+            .map(|s| s.service_endpoint.clone())
+    });
 
     // Extract verification method (Multikey or legacy EcdsaSecp*)
-    let vm = doc
-        .verification_method
-        .as_ref()
-        .and_then(|vms| vms.first());
+    let vm = doc.verification_method.as_ref().and_then(|vms| vms.first());
 
     let (signing_key_multibase, signing_key_type) = vm.map_or((None, None), |vm| {
         (vm.public_key_multibase.clone(), Some(vm.type_.clone()))
@@ -131,10 +125,7 @@ async fn resolve_to_did(input: &str) -> Result<String, Error> {
             .map(|s| s.to_string())
             .ok_or_else(|| Error::NotFound(format!("No DID returned for handle: {}", handle)))
     } else {
-        Err(Error::BadRequest(format!(
-            "Not a DID or handle: {}",
-            input
-        )))
+        Err(Error::BadRequest(format!("Not a DID or handle: {}", input)))
     }
 }
 
@@ -154,10 +145,7 @@ async fn fetch_did_document(did: &str) -> Result<DidDocument, Error> {
     }
 
     if !resp.status().is_success() {
-        return Err(Error::BadRequest(format!(
-            "PLC returned {}",
-            resp.status()
-        )));
+        return Err(Error::BadRequest(format!("PLC returned {}", resp.status())));
     }
 
     let doc: DidDocument = resp
