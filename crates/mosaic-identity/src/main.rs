@@ -15,7 +15,12 @@ use mosaic_identity::{api, storage::Storage};
 #[command(name = "mosaic-identity", version = "0.1.0")]
 struct Cli {
     /// SQLite database URL (sqlite:///path/to/db)
-    #[arg(short, long, env = "MIS_DATABASE_URL", default_value = "sqlite:mosaic-identity.db?mode=rwc")]
+    #[arg(
+        short,
+        long,
+        env = "MIS_DATABASE_URL",
+        default_value = "sqlite:mosaic-identity.db?mode=rwc"
+    )]
     database: String,
 
     /// Listen host

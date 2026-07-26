@@ -1,6 +1,6 @@
+use crate::error::Error;
 use bech32::decode;
 use serde::{Deserialize, Serialize};
-use crate::error::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedNostrIdentity {
@@ -18,17 +18,25 @@ pub struct ResolvedNostrMosaic {
 /// Validate + decode an npub to its hex public key.
 /// Returns the original npub on success.
 pub fn resolve_npub(input: &str) -> Result<ResolvedNostrIdentity, Error> {
-    let clean = input.trim().trim_start_matches('@').trim_start_matches("nostr:");
+    let clean = input
+        .trim()
+        .trim_start_matches('@')
+        .trim_start_matches("nostr:");
 
-    let (hrp, data) = decode(clean).map_err(|e| {
-        Error::BadRequest(format!("Invalid bech32 '{}': {}", clean, e))
-    })?;
+    let (hrp, data) = decode(clean)
+        .map_err(|e| Error::BadRequest(format!("Invalid bech32 '{}': {}", clean, e)))?;
 
     if hrp.as_str() != "npub" {
-        return Err(Error::BadRequest(format!("Expected 'npub' prefix, got '{}'", hrp)));
+        return Err(Error::BadRequest(format!(
+            "Expected 'npub' prefix, got '{}'",
+            hrp
+        )));
     }
     if data.len() != 32 {
-        return Err(Error::BadRequest(format!("npub must be 32 bytes, got {}", data.len())));
+        return Err(Error::BadRequest(format!(
+            "npub must be 32 bytes, got {}",
+            data.len()
+        )));
     }
 
     let hex_pubkey = hex::encode(&data);

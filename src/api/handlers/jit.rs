@@ -48,9 +48,7 @@ pub async fn mint_token(
         .as_ref()
         .ok_or_else(|| AuthError::Internal("JIT issuer not configured".to_string()))?;
 
-    let ttl = request
-        .ttl_seconds
-        .unwrap_or(state.config.jit.default_ttl);
+    let ttl = request.ttl_seconds.unwrap_or(state.config.jit.default_ttl);
 
     let signed = issuer.mint(request.scopes, &request.audience, ttl);
 

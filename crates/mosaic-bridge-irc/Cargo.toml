@@ -1,0 +1,37 @@
+[package]
+name = "mosaic-bridge-irc"
+version = "0.1.0"
+edition = "2021"
+description = "Mosaic ↔ IRC bridge via TLS — standalone daemon with SASL, auto-reconnect, and MIS identity probe"
+license = "MIT"
+
+[dependencies]
+# Core async runtime
+tokio = { version = "1", features = ["full"] }
+
+# TLS
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client (MIS probing)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# MIS client
+mosaic-client = { path = "../mosaic-client" }
+
+# SASL base64
+base64 = "0.22"
+
+# Error handling
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Future combinators
+futures-util = "0.3"

@@ -54,9 +54,10 @@ pub fn derive_public_key(seed_hex: &str) -> Result<(String, String), Error> {
 ///
 /// The private key is provided as PKCS#8 hex.
 pub fn sign(privkey_hex: &str, msg: &[u8]) -> Result<String, Error> {
-    let pkcs8 = hex::decode(privkey_hex).map_err(|_| Error::Crypto("Invalid hex in private key".into()))?;
-    let key_pair =
-        Ed25519KeyPair::from_pkcs8(&pkcs8).map_err(|_| Error::Crypto("Invalid PKCS#8 key".into()))?;
+    let pkcs8 =
+        hex::decode(privkey_hex).map_err(|_| Error::Crypto("Invalid hex in private key".into()))?;
+    let key_pair = Ed25519KeyPair::from_pkcs8(&pkcs8)
+        .map_err(|_| Error::Crypto("Invalid PKCS#8 key".into()))?;
 
     let signature = key_pair.sign(msg);
     Ok(hex::encode(signature.as_ref()))
@@ -64,7 +65,8 @@ pub fn sign(privkey_hex: &str, msg: &[u8]) -> Result<String, Error> {
 
 /// Verify a signature against a public key and message.
 pub fn verify(pubkey_hex: &str, msg: &[u8], sig_hex: &str) -> Result<bool, Error> {
-    let pubkey = hex::decode(pubkey_hex).map_err(|_| Error::Crypto("Invalid hex in public key".into()))?;
+    let pubkey =
+        hex::decode(pubkey_hex).map_err(|_| Error::Crypto("Invalid hex in public key".into()))?;
     let sig = hex::decode(sig_hex).map_err(|_| Error::Crypto("Invalid hex in signature".into()))?;
 
     let peer_public_key = UnparsedPublicKey::new(&ED25519, &pubkey);
@@ -96,7 +98,7 @@ pub struct HybridSignature {
     pub falcon_sig: String,
 
     /// Signing algorithm
-    pub algorithm: String,  // "ed25519+falcon512"
+    pub algorithm: String, // "ed25519+falcon512"
 
     /// Public key for verification
     pub pubkey_hex: String,
@@ -117,7 +119,9 @@ pub fn sign_hybrid(privkey_hex: &str, msg: &[u8]) -> Result<HybridSignature, Err
     // FALCON-512 signature (optional — feature-gated)
     let falcon_sig = sign_falcon(msg);
     if falcon_sig.is_empty() {
-        return Err(Error::Crypto("PQ feature not enabled. Rebuild with --features pq".into()));
+        return Err(Error::Crypto(
+            "PQ feature not enabled. Rebuild with --features pq".into(),
+        ));
     }
 
     Ok(HybridSignature {
@@ -132,8 +136,8 @@ pub fn sign_hybrid(privkey_hex: &str, msg: &[u8]) -> Result<HybridSignature, Err
 /// Returns empty string when `pq` feature is disabled (caller returns error).
 #[cfg(feature = "pq")]
 fn sign_falcon(msg: &[u8]) -> String {
+    use pqcrypto_falcon::falcon512::{detached_sign, keypair};
     use pqcrypto_traits::sign::DetachedSignature as _;
-    use pqcrypto_falcon::falcon512::{keypair, detached_sign};
     let (_pk, sk) = keypair();
     let sig = detached_sign(msg, &sk);
     hex::encode(sig.as_bytes())
@@ -145,7 +149,7 @@ fn sign_falcon(msg: &[u8]) -> String {
 fn sign_falcon(msg: &[u8]) -> String {
     // PQ disabled — return empty; sign_hybrid reports error
     let hash = Sha256::digest(msg);
-    return "".to_string()
+    return "".to_string();
 }
 
 /// Verify a hybrid signature (checks Ed25519 only; PQ verification deferred).
