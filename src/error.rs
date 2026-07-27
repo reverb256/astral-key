@@ -28,6 +28,7 @@ impl ErrorCode {
     pub const BAD_REQUEST: Self = Self("AUTH_BAD_REQUEST");
     pub const UNAUTHORIZED: Self = Self("AUTH_UNAUTHORIZED");
     pub const FORBIDDEN: Self = Self("AUTH_FORBIDDEN");
+    pub const CONFLICT: Self = Self("AUTH_CONFLICT");
     pub const NOT_IMPLEMENTED: Self = Self("AUTH_NOT_IMPLEMENTED");
 }
 
@@ -87,6 +88,10 @@ pub enum AuthError {
     #[allow(dead_code)]
     #[error("Not implemented: {0}")]
     NotImplemented(String),
+
+    #[allow(dead_code)]
+    #[error("Conflict: {0}")]
+    Conflict(String),
 }
 
 /// Result type alias
@@ -108,6 +113,7 @@ impl AuthError {
             AuthError::Internal(_) => ErrorCode::INTERNAL.0,
             AuthError::BadRequest(_) => ErrorCode::BAD_REQUEST.0,
             AuthError::NotImplemented(_) => ErrorCode::NOT_IMPLEMENTED.0,
+            AuthError::Conflict(_) => ErrorCode::CONFLICT.0,
         }
     }
 
@@ -126,6 +132,7 @@ impl AuthError {
             AuthError::Internal(e) => e.clone(),
             AuthError::BadRequest(e) => e.clone(),
             AuthError::NotImplemented(e) => e.clone(),
+            AuthError::Conflict(e) => e.clone(),
         }
     }
 }
@@ -140,6 +147,7 @@ impl IntoResponse for AuthError {
             AuthError::Forbidden(_) => StatusCode::FORBIDDEN,
             AuthError::NotFound(_) => StatusCode::NOT_FOUND,
             AuthError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
+            AuthError::Conflict(_) => StatusCode::CONFLICT,
             _ => StatusCode::BAD_REQUEST,
         };
         let body = Json(ErrorResponse {
