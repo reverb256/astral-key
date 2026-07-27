@@ -107,7 +107,7 @@ cargo fmt
 # Run linter
 cargo clippy -- -D warnings
 
-# Security audit
+# Security audit (install: cargo install cargo-audit)
 cargo audit
 ```
 

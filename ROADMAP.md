@@ -6,6 +6,9 @@
 
 ## Current Status
 
+> **Last updated:** 2026-07-27. This is a live roadmap — checkmarks reflect
+> actual completion against GitHub issues and source code.
+
 Astral Key has completed a major v2 upgrade that added API key management, ZK
 JIT capability tokens, session management with refresh token rotation, Ed25519
 identity/contacts, rate limiting, audit logging, and an MCP server — all while
@@ -34,8 +37,8 @@ implemented. The focus now is polish, hardening, and production deployment.
 | ✅ Build fix: missing functions, env vars, webauthn API | ✅ |
 | ✅ Unwrap kill: zero `unwrap()` calls in production code | ✅ |
 | ✅ Error codes: `AuthError` enum with specific variants | ✅ |
-| 🔄 MCP server: rate limit + audit + MCP tools compile check | 🔄 |
-| ⬜ Run `cargo clippy` and address all warnings | ⬜ |
+| ✅ MCP server: rate limit + audit + MCP tools compile check | ✅ |
+| ✅ CI runs `cargo clippy` on push/PR (`.github/workflows/ci.yml`) | ✅ |
 | ⬜ Build release binary (`cargo build --release`) | ⬜ |
 
 ---
@@ -53,7 +56,7 @@ implemented. The focus now is polish, hardening, and production deployment.
 | ⬜ Integration tests: FIDO2 ceremony with mock authenticator | ⬜ |
 | ⬜ E2E test script: automate full auth flows | ⬜ |
 | ⬜ Coverage analysis (cargo-tarpaulin) | ⬜ |
-| ⬜ CI/CD pipeline (GitHub Actions) | ⬜ |
+| ✅ CI pipeline (lint, test, audit, Docker build) | ✅ |
 
 ---
 
@@ -64,7 +67,9 @@ implemented. The focus now is polish, hardening, and production deployment.
 | ✅ Docker Compose (single-service, SQLite volume) | ✅ |
 | ✅ Containerfile (multi-stage build) | ✅ |
 | ✅ K3s manifests (deployment, service, PVC) | ✅ |
-| ✅ sops-encrypted JWT issuer key | ✅ |
+| ✅ sops-encrypted JIT issuer key | ✅ |
+| ✅ Audit logging (JSON stdout) | ✅ |
+| ✅ Rate limiting middleware | ✅ |
 | ⬜ Deploy to K3s cluster | ⬜ |
 | ⬜ Set up monitoring (health/ready probes configured) | ⬜ |
 | ⬜ Set up structured log shipping (stdout JSON → Vector/Filebeat) | ⬜ |
@@ -138,4 +143,4 @@ There is no fixed weekly schedule. Priorities, in order:
 - [`IMPLEMENTATION_SUMMARY.md`](IMPLEMENTATION_SUMMARY.md) — detailed module-by-module status
 - [`docs/architecture.md`](docs/architecture.md) — module layout and auth flows
 - [`docs/deployment.md`](docs/deployment.md) — deployment options and env vars
-- [`HEY.md`](HEY.md) — v2 upgrade cross-agent coordination log
+- [`HEY.md`](HEY.md) — v2 upgrade cross-agent coordination log (archived)

@@ -28,7 +28,7 @@ astral-key/
 │   │   ├── main.rs            # HTTP server entry point
 │   │   ├── lib.rs             # Re-exports all modules
 │   │   ├── api.rs             # 16 route handlers (keys, sign, verify, bindings)
-│   │   ├── crypto.rs          # Ed25519 + FALCON-512 hybrid signing
+│   │   ├── crypto.rs          # Ed25519 + ML-DSA-65 (FIPS 204) hybrid signing
 │   │   ├── storage.rs         # SQLite: keys, bindings, rotations tables
 │   │   ├── bindings.rs        # atproto DID resolver (PLC directory)
 │   │   ├── nostr.rs           # Nostr npub→hex decoder (Bech32)
@@ -57,7 +57,7 @@ Standalone Rust binary in `crates/mosaic-identity/`. 16 HTTP endpoints:
 | GET | `/keys/{key_id}/history` | Rotation history |
 | POST | `/sign` | Ed25519 sign |
 | POST | `/verify` | Ed25519 verify |
-| POST | `/sign/hybrid` | Dual Ed25519+FALCON-512 (needs `--features pq`) |
+| POST | `/sign/hybrid` | Dual Ed25519+ML-DSA-65 (needs `--features pq`) |
 | POST | `/verify/hybrid` | Verify hybrid signature |
 | POST | `/bindings/resolve` | atproto DID → Mosaic key |
 | POST | `/bindings/claim` | Bind key to external identity |
@@ -83,7 +83,7 @@ GET  /resolve?protocol=...  → resolve any external ID → Mosaic key
 cargo build -p mosaic-identity --features pq --release
 ```
 
-Produces dual Ed25519 + FALCON-512 signatures. Without `--features pq`,
+Produces dual Ed25519 + ML-DSA-65 signatures. Without `--features pq`,
 `POST /sign/hybrid` returns an error: "PQ feature not enabled. Rebuild with
 --features pq". No fake/placeholder signatures.
 
@@ -110,6 +110,10 @@ Each bridge is a sidecar container. Selection via `BRIDGE_TYPE` env var.
 | buzz | MIS, Nostr relay URL | `BRIDGE_TYPE=buzz` | WebSocket relay, identity binding |
 | matrix | MIS, Matrix homeserver | `BRIDGE_TYPE=matrix` | AS server on :8082 |
 | irc | MIS, IRC server | `BRIDGE_TYPE=irc` | TLS client, channel mapping |
+| activitypub | MIS, ActivityPub | `BRIDGE_TYPE=activitypub` | Federation protocol |
+| telegram | MIS, Telegram Bot API | `BRIDGE_TYPE=telegram` | Bot API client |
+| discord | MIS, Discord Bot API | `BRIDGE_TYPE=discord` | Bot API client |
+| haven | MIS, Haven server | `BRIDGE_TYPE=haven` | Socket.IO adapter |
 
 ## Deploy
 
@@ -145,9 +149,9 @@ kubectl apply -f /etc/nixos/k8s/mosaic-bridges/
 - MIS crate added to workspace (`crates/mosaic-identity/`)
 - 16 REST endpoints for PKI operations
 - Identity binding system (one key → atproto, nostr, matrix, irc)
-- PQ hybrid signing (Ed25519 + FALCON-512, feature-gated)
+- PQ hybrid signing (Ed25519 + ML-DSA-65, feature-gated)
 - Agent ephemeral cert delegation
-- 4 transport plugins (atproto, buzz, matrix, irc)
+- 8 transport plugins (atproto, buzz, matrix, irc, activitypub, telegram, discord, haven)
 - Mosaic identity.js auto-selects MIS (fallback to local tweetnacl)
 - PersistentVolumeClaim → emptyDir (local-path provisoner delay)
 - All admission policies deleted (blocked deployment)

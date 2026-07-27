@@ -1,7 +1,7 @@
 # Astral Key — Implementation Summary
 
-**Date:** 2026-07-16
-**Status:** Post-v2 upgrade — core auth modules + extended capabilities complete
+**Date:** 2026-07-27 (refresh)
+**Status:** Core auth complete, MIS shipped, bridges deployed
 
 ---
 
@@ -16,6 +16,14 @@ management with refresh token rotation, Ed25519 identity/contacts, rate
 limiting, audit logging, and an MCP server. The project retains its zero-ops
 character: a single binary + a single SQLite file.
 
+The repo also contains the **Mosaic Identity Service (MIS)** crate — a
+standalone PKI service for Ed25519 key management, cross-protocol identity
+binding, ML-DSA-65 PQ hybrid signing, BIP-39 HD derivation, and agent
+ephemeral certs (16 REST endpoints on port 8081).
+
+And **9 transport bridge crates** (atproto, buzz, matrix, irc, activitypub,
+telegram, discord, haven, + shared mosaic-client lib).
+
 ---
 
 ## Current Architecture
@@ -24,13 +32,14 @@ character: a single binary + a single SQLite file.
 |-------|-----------|
 | **Runtime** | Tokio (async) |
 | **Web framework** | Axum 0.7 |
-| **Database** | SQLite 3 (sqlx 0.7) |
+| **Database** | SQLite 3 (sqlx 0.8) |
 | **FIDO2 / WebAuthn** | webauthn-rs 0.5 |
 | **Web3 / SIWE** | ethers-rs 2.0, siwe 0.6 |
-| **JWT** | jsonwebtoken 9.x (HMAC HS256) |
+| **JWT** | jsonwebtoken 10.x (HMAC HS256) |
 | **API key hashing** | Argon2id (argon2 0.5) |
 | **JIT tokens** | Ed25519 (ed25519-dalek 2.x) |
-| **Deploy** | Docker Compose, K3s, Nix |
+| **Post-quantum** | ML-DSA-65 (FIPS 204, feature-gated `pq`) |
+| **Deploy** | Docker Compose, K3s, Nix dev shell |
 
 ---
 
@@ -93,7 +102,7 @@ character: a single binary + a single SQLite file.
 - Three-party model: issuer (holds signing key), verifier (holds verifying key),
   consumer (presents token)
 - Scope grammar (`namespace:action`) with `admin` wildcard
-- Compile-time scope registry in `src/auth/capabilities/registry.rs`
+- Compile-time scope registry with 19 known scopes
 - Epoch-based batch revocation (O(1) emergency kill switch)
 - JSONL tombstone journal for durable per-token revocation
 - Comprehensive test suite for issuer, verifier, scope validation, epoch,
@@ -136,16 +145,17 @@ character: a single binary + a single SQLite file.
 
 **Files:** `src/auth/mcp/tools.rs`, `src/auth/mcp/mod.rs`
 
-### 9. Documentation
+### 9. Documentation (fresh as of 2026-07-27)
 
 - `README.md` — project overview, quick start (cargo, Docker, Nix)
-- `docs/api.md` — full API reference with curl examples
-- `docs/architecture.md` — module layout and authentication flow diagrams
-- `docs/deployment.md` — Docker Compose, NixOS, K3s deployment guide
-- `docs/errors.md` — error code reference by endpoint
+- `docs/api.md` — full API reference with curl examples (all 25+ endpoints)
+- `docs/architecture.md` — truthful SQLite-only module layout
+- `docs/deployment.md` — Docker Compose, Nix dev shell, K3s deployment guide
+- `docs/errors.md` — error code reference by endpoint (string codes)
 - `CONTRIBUTING.md` — build, test, and PR guidelines
-- `config.example.yaml` / `.env.example` — environment variable reference
-- `HEY.md` — cross-agent coordination (v2 upgrade tracker)
+- `config.example.yaml` — environment variable reference
+- `knowledge.md` — AI project knowledge for automated tooling
+- `AGENTS.md` — AI agent knowledge base (MIS, bridges, cluster topology)
 
 ---
 
@@ -155,15 +165,16 @@ character: a single binary + a single SQLite file.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Liveness check |
+| GET | `/health` | Liveness check (returns plain text `"OK"`) |
 | GET | `/ready` | Readiness check (DB) |
-| POST | `/api/v1/auth/web3/chains` | List supported chains |
+| **GET** | `/api/v1/auth/web3/chains` | List supported chains |
 | POST | `/api/v1/auth/web3/nonce` | SIWE nonce |
 | POST | `/api/v1/auth/web3/verify` | SIWE → JWT |
 | POST | `/api/v1/auth/fido2/authenticate/options` | Auth challenge |
 | POST | `/api/v1/auth/fido2/authenticate/verify` | Auth → JWT |
 | POST | `/api/v1/auth/verify` | Validate a JWT |
 | POST | `/api/v1/auth/token/refresh` | Refresh token pair |
+| POST | `/api/v1/auth/jit/verify` | Verify capability token |
 | POST | `/api/v1/identity/verify` | Verify Ed25519 signature |
 | GET | `/api/v1/identity/qr/:pubkey` | Generate QR code |
 
@@ -177,10 +188,11 @@ character: a single binary + a single SQLite file.
 | DELETE | `/api/v1/auth/fido2/credentials/:id` | Delete passkey |
 | POST | `/api/v1/auth/keys` | Create API key |
 | GET | `/api/v1/auth/keys` | List API keys |
-| DELETE | `/api/v1/auth/keys/:id` | Delete API key |
+| DELETE | `/api/v1/auth/keys/:id` | Hard-delete API key |
 | POST | `/api/v1/auth/keys/:id/revoke` | Revoke API key |
 | GET | `/api/v1/auth/sessions` | List sessions |
 | DELETE | `/api/v1/auth/sessions/:id` | Revoke session |
+| POST | `/api/v1/auth/jit/mint` | Mint capability token |
 | POST | `/api/v1/identity` | Create identity |
 | GET | `/api/v1/identity` | List identities |
 | GET | `/api/v1/identity/current` | Current identity |
@@ -190,6 +202,13 @@ character: a single binary + a single SQLite file.
 | POST | `/api/v1/contacts` | Add / update contact |
 | POST | `/api/v1/contacts/scan` | Scan QR → contact |
 | DELETE | `/api/v1/contacts/:pubkey` | Delete contact |
+
+### OAuth (handlers exist, not wired into routes)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/auth/oauth/github/login` | Initiate GitHub OAuth |
+| GET | `/auth/oauth/github/callback` | GitHub OAuth callback |
 
 ---
 
@@ -204,6 +223,7 @@ character: a single binary + a single SQLite file.
 | **Scope = flat set intersection** | No Zanzibar graph needed; set membership sufficient |
 | **MCP server feature-gated** | Optional dependency, minimal base-binary overhead |
 | **Revocation = epoch + tombstones** | Epoch fast path for batch, JSONL for individual |
+| **ML-DSA-65 for PQ** | FIPS 204 compliant, replaces previous FALCON-512 stub |
 
 ---
 
@@ -213,17 +233,15 @@ character: a single binary + a single SQLite file.
 - Modules with tests: JWT, Web3 SIWE, FIDO2 types, rate limiter, audit,
   JIT issuer/verifier/scope/epoch, API key hashing, capabilities registry,
   SIWE message parsing, nonce generation, CORS
-- Integration tests: `tests/` directory (planned)
+- Integration tests: `tests/` directory (planned, not yet implemented)
 - No external services required — SQLite runs in-memory for tests
 
 ---
 
 ## Remaining Work
 
-- Verify `cargo check && cargo test --lib` passes post-v2 (Phase 4 completion
-  pending)
-- Run `cargo clippy` and address any warnings
-- Build release binary and deploy to K3s
-- Wire sops-encrypted issuer key in production
-- Add integration tests for new endpoints (keys, sessions, JIT, identity)
-- Container image: finalize multi-stage build in Containerfile
+- `cargo check` and `cargo test --lib` — verify current state compiles cleanly
+- Integration tests for the full API surface (keys, sessions, JIT, identity)
+- Wire OAuth (GitHub) handlers into route tree (requires adding `oauth_state` field to AppState)
+- Build + push container images to registry
+- CI/CD: release workflow (tag → OCI publish)
