@@ -1,0 +1,51 @@
+# Astral Key — Dependabot configuration
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # Rust/Cargo dependencies
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Chicago"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "automated"
+    # Group minor and patch updates together into single PRs
+    groups:
+      rust-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Auto-merge criteria — safe updates only
+    # Patch and minor bumps can auto-merge if CI passes.
+    # Major bumps require manual review (breaking changes).
+    allow:
+      - dependency-type: "direct"
+    ignore:
+      # Major updates require manual review
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Chicago"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "automated"
+    groups:
+      actions-all:
+        patterns:
+          - "*"
