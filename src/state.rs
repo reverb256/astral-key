@@ -72,6 +72,9 @@ pub struct AppState {
 
     // ZK JIT capability token verifier (wrapped in Arc for Clone)
     pub jit_verifier: Option<Arc<JitVerifier>>,
+
+    // In-memory OAuth state store (for PKCE/state parameter verification)
+    pub oauth_state: Fido2StateStore,
 }
 
 impl AppState {
@@ -107,8 +110,9 @@ impl AppState {
             .map_err(|e| AuthError::Internal(format!("Failed to initialize JWT service: {}", e)))?,
         );
 
-        // Initialize FIDO2 service (no cache/Redis needed)
+        // Initialize in-memory stores
         let fido2_state = Fido2StateStore::default();
+        let oauth_state = Fido2StateStore::default();
         let fido2 = match Fido2Service::new(&config.fido2) {
             Ok(service) => {
                 tracing::info!("FIDO2 service initialized");
@@ -163,6 +167,7 @@ impl AppState {
             config: std::sync::Arc::new(config),
             db,
             fido2_state,
+            oauth_state,
             jwt,
             fido2,
             jit_issuer,
