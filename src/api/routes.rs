@@ -103,7 +103,16 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
         )
         // ZK JIT token verification (public — delegated services can validate
         // capability tokens without needing a JWT of their own)
-        .route("/auth/jit/verify", post(handlers::jit::verify_token));
+        .route("/auth/jit/verify", post(handlers::jit::verify_token))
+        // OAuth (public — GitHub login initiates outbound, callback receives code)
+        .route(
+            "/auth/oauth/github/login",
+            get(handlers::oauth::github_login),
+        )
+        .route(
+            "/auth/oauth/github/callback",
+            get(handlers::oauth::github_callback),
+        );
 
     router
         .nest(
