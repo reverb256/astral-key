@@ -36,6 +36,13 @@
 
   outputs = inputs@{ self, nixpkgs, flake-parts, fenix, crane, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
+      # Top-level flake outputs (not per-system)
+      flake = {
+        nixosModules.default = { pkgs, lib, ... }: {
+          imports = [ ./nix/nixos-module.nix ];
+          services.astral-key.package = lib.mkDefault self.packages.${pkgs.system}.astral-key;
+        };
+      };
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
 
       imports = [
