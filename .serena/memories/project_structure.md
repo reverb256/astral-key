@@ -1,34 +1,36 @@
-# Astral Key - Project Structure
+# Astral Key — Project Structure
 
 ## Root Directory Layout
 
 ```
 astral-key/
-├── src/                      # Source code
-├── tests/                    # Integration tests
-├── benches/                  # Benchmarks (planned)
-├── migrations/               # SQL database migrations
+├── src/                      # Auth sidecar source
+├── crates/                   # Workspace crates (MIS + bridges)
+├── migrations/               # SQLite migrations
 ├── docs/                     # Documentation
-├── static/                   # Static assets
-├── scripts/                  # Utility scripts
-├── nix/                      # Nix configurations
+├── k8s/                      # K3s manifests
+├── casdoor/                  # Casdoor OIDC configs
 ├── .github/                  # GitHub workflows
 ├── .serena/                  # Serena workspace files
-├── Cargo.toml                # Rust package manifest
-├── Cargo.lock                # Dependency lock file
-├── flake.nix                 # Nix flake configuration
-├── shell.nix                 # Nix development shell
-├── justfile                  # Just command recipes
-├── docker-compose.yml        # Dev infrastructure
-├── docker-compose.prod.yml   # Production infrastructure
-├── Dockerfile                # Container image
-├── nixos-module.nix          # NixOS service module
-├── README.md                 # Project overview
-├── STATUS.md                 # Implementation status
-├── ROADMAP.md                # Implementation plan
+├── .claude/                  # Claude AI agents + skills
+├── Cargo.toml                # Workspace manifest
+├── Cargo.lock                # Dependency lock
+├── flake.nix                 # Nix flake (dev shell)
+├── Containerfile             # Docker multi-stage build
+├── Dockerfile                # MIS container build
+├── docker-compose.yml        # Single-service Docker Compose
+├── Dockerfile.mosaic-identity # MIS container
+├── Dockerfile.bridges        # Bridge container
+├── bridges-entrypoint.sh     # Bridge type dispatcher
+├── README.md
+├── knowledge.md              # AI project knowledge
+├── ARCHITECTURE.md           # Brief arch pointer
+├── ROADMAP.md                # Roadmap
 ├── TESTING.md                # Testing guide
 ├── CONTRIBUTING.md           # Contribution guidelines
-├── ARCHITECTURE.md           # System design
+├── IMPLEMENTATION_SUMMARY.md # Module-by-module status
+├── AGENTS.md                 # AI agent knowledge base
+├── HEY.md                    # Historical coordination log (stale)
 └── LICENSE                   # MIT license
 ```
 
@@ -36,112 +38,122 @@ astral-key/
 
 ```
 src/
-├── lib.rs                 # Library root, exports public API
-├── main.rs                # Binary entry point, server setup
-├── error.rs               # Error types (thiserror-based)
-├── config.rs              # Configuration management
-├── state.rs               # Application state (App struct)
+├── lib.rs                 # Library root
+├── main.rs                # Binary entry point + health/ready routes
+├── config.rs              # Env-var config
+├── error.rs               # AuthError (string error codes)
+├── state.rs               # AppState (DbPool, services, stores)
 │
 ├── api/                   # HTTP Layer
-│   ├── mod.rs             # API module exports
-│   ├── routes.rs          # Route definitions
-│   ├── handlers/          # Request handlers
-│   │   ├── mod.rs
-│   │   ├── health.rs      # Health check endpoints
-│   │   ├── web3.rs        # Web3/SIWE handlers
-│   │   ├── fido2.rs       # FIDO2/WebAuthn handlers
-│   │   ├── session.rs     # Session management handlers
-│   │   └── user.rs        # User management handlers
-│   └── middleware.rs      # Custom middleware (CORS, rate limiting)
+│   ├── routes.rs          # Route definitions (public vs protected)
+│   ├── handlers/          # 9 handler modules
+│   │   ├── health.rs      # Health/ready handlers
+│   │   ├── web3.rs        # SIWE nonce, verify, chains
+│   │   ├── fido2.rs       # WebAuthn register, authenticate, CRUD
+│   │   ├── auth.rs        # Token verification
+│   │   ├── session.rs     # Token refresh, list/revoke sessions
+│   │   ├── keys.rs        # API key CRUD + revoke
+│   │   ├── jit.rs         # JIT token mint + verify
+│   │   ├── identity.rs    # Ed25519 identity, contacts, QR, verify
+│   │   └── oauth.rs       # GitHub OAuth (unwired)
+│   └── middleware/
+│       ├── rate_limit.rs  # Token-bucket rate limiter
+│       ├── audit.rs       # JSON audit logging
+│       └── cors.rs        # CORS layer
 │
-├── auth/                  # Authentication Layer
-│   ├── mod.rs             # Auth module exports
-│   ├── jwt/               # JWT Authentication
-│   │   ├── mod.rs
-│   │   ├── claims.rs      # Custom JWT claims
-│   │   ├── middleware.rs  # JWT validator extractor
-│   │   └── service.rs     # Token generation/validation
-│   ├── web3/              # Web3 Authentication
-│   │   ├── mod.rs
-│   │   ├── nonce.rs       # SIWE nonce generation/storage
-│   │   └── siwe.rs        # Signature verification (ethers-rs)
-│   └── fido2/             # FIDO2/WebAuthn
-│       ├── mod.rs
-│       ├── registration.rs  # Registration ceremony
-│       ├── authentication.rs # Authentication ceremony
-│       └── types.rs        # WebAuthn types
+├── auth/                  # Authentication modules
+│   ├── jwt/               # JWT service + middleware + claims
+│   ├── fido2/             # WebAuthn registration + authentication + types
+│   ├── web3/              # SIWE signing + nonce
+│   ├── jit/               # JIT issuer, verifier, scope, epoch
+│   ├── keys/              # Argon2id hashing + key service
+│   ├── capabilities/      # Compile-time scope registry (19 scopes)
+│   └── mcp/               # MCP server (feature-gated)
 │
 ├── db/                    # Database Layer
-│   ├── mod.rs
-│   ├── pool.rs            # PostgreSQL connection pool
-│   └── models/            # Database models
-│       ├── mod.rs
-│       ├── user.rs        # User CRUD operations
-│       ├── web3.rs        # Web3 wallet operations
-│       ├── fido2.rs       # FIDO2 credential operations
-│       ├── session.rs     # JWT session operations
-│       └── nonce.rs       # SIWE nonce operations
+│   ├── pool.rs            # SQLite pool
+│   └── models/            # User, Web3Wallet, Fido2Credential,
+│                          # Session, ApiKey, Identity, Contact, OAuthAccount
 │
-├── cache/                 # Redis Cache Layer
-│   ├── mod.rs
-│   ├── pool.rs            # Redis connection pool
-│   └── operations.rs      # Cache operations (sessions, nonces, blacklist)
-│
-├── vaultwarden/           # Vaultwarden Integration
-│   ├── mod.rs
-│   └── client.rs          # Vaultwarden API client
-│
-└── utils/                 # Utilities
-    ├── mod.rs
-    └── crypto.rs          # Cryptographic helpers
+└── utils/
+    └── crypto.rs          # Crypto helpers
+```
+
+## Crate Structure (`crates/`)
+
+```
+crates/
+├── mosaic-identity/          # MIS — standalone PKI service (port 8081)
+│   ├── src/api.rs            # 16 REST endpoints
+│   ├── src/crypto.rs         # Ed25519 + ML-DSA-65
+│   ├── src/storage.rs        # SQLite key store
+│   ├── src/hd.rs             # BIP-39 → SLIP-10 HD derivation
+│   ├── src/bindings.rs       # atproto DID resolver
+│   ├── src/nostr.rs          # npub decoder
+│   └── ...
+├── mosaic-client/            # Shared bridge client lib
+├── mosaic-bridge-atproto/    # atproto adapter
+├── mosaic-bridge-buzz/       # Nostr adapter
+├── mosaic-bridge-matrix/     # Matrix AS adapter
+├── mosaic-bridge-irc/        # IRC adapter
+├── mosaic-bridge-activitypub/ # ActivityPub adapter
+├── mosaic-bridge-telegram/   # Telegram adapter
+├── mosaic-bridge-discord/    # Discord adapter
+├── mosaic-bridge-haven/      # Haven Socket.IO adapter
 ```
 
 ## Database Schema (`migrations/`)
 
-Key tables:
-- `users` - User accounts (UUID primary key)
-- `web3_wallets` - Multi-chain wallet addresses
-- `fido2_credentials` - WebAuthn passkey storage
-- `sessions` - JWT session management
-- `siwe_nonces` - SIWE nonces with expiration
+3 SQLite migrations:
+- `001_initial.sql` — Core tables (users, wallets, credentials)
+- `002_api_keys_and_sessions.sql` — API keys + session management
+- `003_identity_contacts.sql` — Ed25519 identities + contact graph
 
 ## API Routes
 
-**Public Routes:**
-- `GET /health` - Health check
-- `GET /ready` - Readiness check (DB + Redis)
-- `POST /api/v1/auth/web3/nonce` - Request SIWE nonce
-- `POST /api/v1/auth/web3/verify` - Verify signature
-- `POST /api/v1/auth/fido2/authenticate/options` - Get auth challenge
-- `POST /api/v1/auth/fido2/authenticate/verify` - Verify assertion
+**Public Routes (on `/api/v1/`):**
+- `POST /auth/web3/nonce` — Request SIWE nonce
+- `POST /auth/web3/verify` — Verify SIWE signature → JWT
+- `GET /auth/web3/chains` — List supported chains
+- `POST /auth/fido2/authenticate/options` — FIDO2 auth challenge
+- `POST /auth/fido2/authenticate/verify` — FIDO2 auth → JWT
+- `POST /auth/verify` — Validate a JWT
+- `POST /auth/token/refresh` — Refresh token pair
+- `POST /auth/jit/verify` — Verify capability token
+- `POST /identity/verify` — Ed25519 signature verify
+- `GET /identity/qr/:pubkey` — Generate QR code
 
-**Protected Routes (JWT required):**
-- `POST /api/v1/auth/fido2/register/options` - Get registration challenge
-- `POST /api/v1/auth/fido2/register/verify` - Complete registration
-- `GET /api/v1/auth/fido2/credentials` - List passkeys
-- `DELETE /api/v1/auth/fido2/credentials/:id` - Delete passkey
-- `GET /api/v1/sessions` - List active sessions
-- `DELETE /api/v1/sessions/current` - Logout
-- `POST /api/v1/sessions/refresh` - Refresh tokens
-- `GET /api/v1/users/me` - Get current user
+**Protected Routes (JWT required, on `/api/v1/`):**
+- `POST /auth/fido2/register/options` — Register challenge
+- `POST /auth/fido2/register/verify` — Complete registration
+- `GET /auth/fido2/credentials` — List passkeys
+- `DELETE /auth/fido2/credentials/:id` — Delete passkey
+- `POST /auth/keys` — Create API key
+- `GET /auth/keys` — List API keys
+- `DELETE /auth/keys/:id` — Hard-delete API key
+- `POST /auth/keys/:id/revoke` — Revoke API key
+- `GET /auth/sessions` — List sessions
+- `DELETE /auth/sessions/:id` — Revoke session
+- `POST /auth/jit/mint` — Mint capability token
+- `POST /identity` — Create identity
+- `GET /identity` — List identities
+- `GET /identity/current` — Current identity
+- `POST /identity/:id/set-current` — Set active identity
+- `DELETE /identity/:id` — Delete identity
+- `GET /contacts` — List contacts
+- `POST /contacts` — Add/update contact
+- `POST /contacts/scan` — Parse QR → contact
+- `DELETE /contacts/:pubkey` — Delete contact
+
+**OAuth (unwired — handlers exist but no routes):**
+- `GET /auth/oauth/github/login` — Initiate OAuth
+- `GET /auth/oauth/github/callback` — OAuth callback
 
 ## Key Dependencies
 
-**Core:**
-- `tokio` - Async runtime
-- `axum` - Web framework
-- `tower` - Middleware
-
-**Database:**
-- `sqlx` - Database toolkit with compile-time checks
-- `redis` - Redis client
-
-**Auth:**
-- `ethers` - Ethereum library (signature verification)
-- `siwe` - Sign-In with Ethereum
-- `webauthn-rs` - WebAuthn implementation
-- `jsonwebtoken` - JWT handling
-
-**Error handling:**
-- `thiserror` - Error derives
-- `anyhow` - Error context
+**Core:** tokio, axum, tower, tower-http
+**Database:** sqlx (SQLite)
+**Auth:** ethers, siwe, webauthn-rs, jsonwebtoken, ed25519-dalek, argon2
+**Crypto:** ring, ed25519-dalek, pqcrypto-mldsa (optional)
+**Errors:** thiserror, anyhow
+**Other:** serde, serde_json, tracing, chrono, uuid, qrcode, image
