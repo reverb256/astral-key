@@ -120,7 +120,7 @@ pub struct HybridSignature {
 
 /// Generate a new ML-DSA-65 keypair (FIPS 204).
 ///
-/// Returns (public_key_hex, secret_key_hex). Unlike the old FALCON stub, the
+/// Returns (public_key_hex, secret_key_hex). The
 /// secret key is returned to the caller for persistent storage — verification
 /// would otherwise be impossible.
 #[cfg(feature = "pq")]
@@ -136,7 +136,8 @@ pub fn generate_mldsa_keypair() -> (String, String) {
 pub fn sign_mldsa(sk_hex: &str, msg: &[u8]) -> Result<String, Error> {
     use pqcrypto_mldsa::mldsa65::{detached_sign, SecretKey};
     use pqcrypto_traits::sign::DetachedSignature as _;
-    let sk_bytes = hex::decode(sk_hex).map_err(|_| Error::Crypto("Invalid ML-DSA sk hex".into()))?;
+    let sk_bytes =
+        hex::decode(sk_hex).map_err(|_| Error::Crypto("Invalid ML-DSA sk hex".into()))?;
     let sk = SecretKey::from_bytes(&sk_bytes)
         .map_err(|_| Error::Crypto("Invalid ML-DSA secret key length".into()))?;
     let sig = detached_sign(msg, &sk);
@@ -148,10 +149,12 @@ pub fn sign_mldsa(sk_hex: &str, msg: &[u8]) -> Result<String, Error> {
 pub fn verify_mldsa(pk_hex: &str, msg: &[u8], sig_hex: &str) -> Result<bool, Error> {
     use pqcrypto_mldsa::mldsa65::{detached_verify, PublicKey, VerifiedSignature};
     use pqcrypto_traits::sign::{DetachedSignature, VerifiedSignature as _};
-    let pk_bytes = hex::decode(pk_hex).map_err(|_| Error::Crypto("Invalid ML-DSA pk hex".into()))?;
+    let pk_bytes =
+        hex::decode(pk_hex).map_err(|_| Error::Crypto("Invalid ML-DSA pk hex".into()))?;
     let pk = PublicKey::from_bytes(&pk_bytes)
         .map_err(|_| Error::Crypto("Invalid ML-DSA public key length".into()))?;
-    let sig_bytes = hex::decode(sig_hex).map_err(|_| Error::Crypto("Invalid ML-DSA sig hex".into()))?;
+    let sig_bytes =
+        hex::decode(sig_hex).map_err(|_| Error::Crypto("Invalid ML-DSA sig hex".into()))?;
     let sig = VerifiedSignature::from_bytes(&sig_bytes)
         .map_err(|_| Error::Crypto("Invalid ML-DSA signature length".into()))?;
     match detached_verify(&sig, msg, &pk) {

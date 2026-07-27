@@ -84,31 +84,14 @@ cargo build --release
 
 ### NixOS Module
 
-A NixOS module is available in the `nix/` directory. Example usage:
-
-```nix
-{
-  imports = [
-    (builtins.fetchTarball {
-      url = "https://github.com/reverb256/astral-key/archive/main.tar.gz";
-    } + "/nix/nixos-module.nix")
-  ];
-
-  services.astral-key = {
-    enable = true;
-    host = "0.0.0.0";
-    port = 8080;
-    database.url = "sqlite:/var/lib/astral-key/db.sqlite?mode=rwc";
-    fido2.rpId = "auth.example.com";
-    fido2.origin = "https://auth.example.com";
-    jwt.secretFile = "/run/secrets/jwt-secret";
-    openFirewall = true;
-  };
-}
-```
-
-> **Note:** The NixOS module is currently being developed. The `nix/`
-> directory is a work in progress.
+> **Note:** No NixOS module currently exists. A NixOS module for the auth
+> sidecar, MIS, and bridges is tracked in [issue #19](https://github.com/reverb256/astral-key/issues/19).
+>
+> The `flake.nix` at project root provides a dev shell (`nix develop`) and
+> package build via Crane. No production-ready NixOS service declaration yet.
+>
+> The `nix/` directory referenced in older documentation was never created.
+> Deploy via Docker Compose or K3s instead (see below).
 
 ---
 
@@ -238,28 +221,28 @@ spec:
 - [ ] **Resource limits** — Astral Key is lightweight. 256 MiB RAM and
       0.5 CPU cores are sufficient for most workloads.
 
-> Snapshot from August 2026 cleanup; verify current state via /etc/nixos/SOPS-NIX.md.
-
-## See Also — SOPS-NIX (canonical on this host)
-
-The canonical local reference is `/etc/nixos/SOPS-NIX.md`. Other repos should cross-link rather than maintain their own copy.
-
 ---
 
 ## Mosaic Identity Service (MIS) / Bridges
 
 ### Architecture
 
-MIS crate (`crates/mosaic-identity/`) is a standalone Rust binary with 16 REST endpoints for Ed25519 key management, cross-protocol identity binding, PQ hybrid signing, and agent ephemeral certs.
+MIS crate (`crates/mosaic-identity/`) is a standalone Rust binary with 16 REST endpoints for Ed25519 key management, cross-protocol identity binding, ML-DSA-65 PQ hybrid signing, BIP-39 mnemonic HD derivation, and agent ephemeral certs.
 
-Four Node.js transport plugins sidecar as k8s pods in `orchestration` namespace:
+All bridges were rewritten from Node.js to Rust and live as workspace crates under `crates/`. They deploy as sidecar containers selected via the `BRIDGE_TYPE` env var:
 
-| Bridge | Protocol | Entrypoint |
-|--------|----------|------------|
-| atproto | PLC/BSky DID resolution | `bridges/atproto/index.js` (daemon :8083) |
-| buzz | Nostr WebSocket relay | `bridges/buzz/index.js` |
-| matrix | Matrix Application Service | `bridges/matrix/index.js` (AS :8082) |
-| irc | IRC TLS client | `bridges/irc/index.js` |
+| Bridge | Protocol | Crate Path |
+|--------|----------|-----------|
+| atproto | PLC/BSky DID resolution | `crates/mosaic-bridge-atproto/` |
+| buzz | Nostr WebSocket relay | `crates/mosaic-bridge-buzz/` |
+| matrix | Matrix Application Service | `crates/mosaic-bridge-matrix/` (AS :8082) |
+| irc | IRC TLS client | `crates/mosaic-bridge-irc/` |
+| activitypub | ActivityPub federation | `crates/mosaic-bridge-activitypub/` |
+| telegram | Telegram bot | `crates/mosaic-bridge-telegram/` |
+| discord | Discord bot | `crates/mosaic-bridge-discord/` |
+| haven | Socket.IO adapter | `crates/mosaic-bridge-haven/` |
+
+Plus a shared library: `crates/mosaic-client/`.
 
 ### Quick start (standalone)
 
