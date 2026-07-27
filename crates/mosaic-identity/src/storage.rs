@@ -92,10 +92,7 @@ impl Storage {
     }
 
     /// Fetch the ML-DSA-65 keypair (hex) for a key, if it was minted with PQ.
-    pub async fn get_mldsa_keypair(
-        &self,
-        key_id: &str,
-    ) -> Result<(String, String), Error> {
+    pub async fn get_mldsa_keypair(&self, key_id: &str) -> Result<(String, String), Error> {
         let rec = sqlx::query_as::<_, KeyRecord>(
             "SELECT key_id, pubkey_hex, privkey_pkcs8_hex, algorithm, created_at, rotated_from, \
              ml_dsa_pubkey_hex, ml_dsa_privkey_hex FROM keys WHERE key_id = $1",

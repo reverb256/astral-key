@@ -1,12 +1,12 @@
-# Astral Key - Code Style & Conventions
+# Astral Key — Code Style & Conventions
 
 ## Rust Conventions
 
 ### Edition & Style
 - **Rust Edition:** 2021
 - **Formatting:** `cargo fmt` (default rustfmt)
-- **Linting:** `cargo clippy` - must pass with no warnings (`-D warnings`)
-- **Documentation:** Public items must have rustdoc comments
+- **Linting:** `cargo clippy` — must pass with no warnings (`-D warnings`)
+- **Documentation:** Public items should have rustdoc comments
 
 ### Code Organization
 
@@ -14,7 +14,7 @@
 ```rust
 //! Module-level documentation
 //!
-//! Detailed description of what this module does and how it fits into the system.
+//! Detailed description of what this module does.
 ```
 
 **Function documentation:**
@@ -24,162 +24,90 @@
 /// # Errors
 ///
 /// Returns error if...
-///
-/// # Examples
-///
-/// ```
-/// let result = function();
-/// assert!(result.is_ok());
-/// ```
 pub fn function() -> Result<()> {
     // ...
 }
 ```
 
 ### Naming Conventions
-- **Types:** `PascalCase` (e.g., `UserService`, `Web3Provider`)
-- **Functions/Methods:** `snake_case` (e.g., `get_user`, `verify_signature`)
-- **Constants:** `SCREAMING_SNAKE_CASE` (e.g., `MAX_SESSION_AGE`)
-- **Modules:** `snake_case` (e.g., `web3`, `fido2`)
+- **Types:** `PascalCase`
+- **Functions/Methods:** `snake_case`
+- **Constants:** `SCREAMING_SNAKE_CASE`
+- **Modules:** `snake_case`
 
 ## Error Handling
 
-### Use `?` Operator for Propagation
-```rust
-use anyhow::Context;
-
-pub async fn get_user(id: Uuid) -> Result<User> {
-    sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .context("Failed to fetch user from database")?
-}
-```
-
-### Anti-Patterns to Avoid
-- **NEVER** use `unwrap()` in production code (only in tests)
+- Use `?` operator for propagation
+- Use `thiserror` for library errors, `anyhow` for application-level
+- **NEVER** use `unwrap()` or `expect()` in production code (tests only)
 - **NO** blocking operations in async context
 - **NO** hardcoded secrets (use environment variables)
-- **NEVER** commit database changes without migration
-- **NO** direct database access without connection pool
-- **NEVER** skip authentication in protected routes
 
 ## Database Operations
 
-### Use SQLx with Compile-Time Checked Queries
-```rust
-// Always create migrations first
-// migrations/xxx_create_users.sql
-
-// In code - use query_as for type-safe results
-sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-    .bind(id)
-    .fetch_one(&pool)
-    .await?
-```
-
-### Use Transactions for Multi-Step Operations
-```rust
-let mut tx = pool.begin().await?;
-// ... multiple operations ...
-tx.commit().await?;
-```
+- SQLite via sqlx (no PostgreSQL, no Redis)
+- All migrations in `migrations/` — applied automatically on server start
+- Use `sqlx::query_as` for type-safe queries
+- Use transactions for multi-step operations
+- SQLite-compatible SQL only
 
 ## Testing
 
-### Unit Tests
-- Place in same file as code using `#[cfg(test)]`
+- Unit tests live next to code: `#[cfg(test)] mod tests`
 - Name tests descriptively: `test_<what>_<condition>_<expected>`
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_user_creation_with_valid_email_succeeds() {
-        let user = User::new("test@example.com");
-        assert!(user.id.is_some());
-    }
-}
-```
-
-### Integration Tests
-- Place in `tests/` directory
-- Test API endpoints and module interactions
-- Target: >80% code coverage
+- Integration tests go in `tests/` (not yet implemented)
 
 ## Commit Messages
 
-Follow **conventional commit** format:
+Follow conventional commit format:
 
 ```
 <type>(<scope>): <description>
 
 [optional body]
-
-[optional footer]
 ```
 
-**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
-
-**Examples:**
-```
-feat(auth): implement FIDO2 registration ceremony
-
-Add WebAuthn registration flow using webauthn-rs.
-Includes challenge generation and attestation verification.
-
-Closes #123
-```
-
-```
-fix(db): resolve connection pool exhaustion
-
-Increase max_connections and add connection timeout.
-```
+Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
 ## Project-Specific Patterns
 
 ### Authentication
 - Protected routes use `AuthenticatedUser` extractor
-- JWT tokens: 15 min access, 7 day refresh
-- Always include blacklist check for revoked tokens
+- JWT tokens: 15 min access, 7 day refresh (configurable via env only)
+- Refresh token rotation on each use
 
 ### Database Models
 - All models use UUID primary keys
 - Use `sqlx::FromRow` derive for query mapping
-- Implement CRUD operations in model modules
+- Implement CRUD in model modules
 
 ### Error Types
-- Custom errors in `src/error.rs` using `thiserror`
-- Use `anyhow::Context` for adding context to external errors
+- Custom `AuthError` enum in `src/error.rs` (string error codes)
+- `into_response` maps to HTTP status codes automatically
 
 ### Configuration
-- All config in `src/config.rs`
-- Use environment variables for secrets
-- Provide sensible defaults for non-sensitive values
+- All config in `src/config.rs` via environment variables
+- No config files (TOML/YAML/INI)
+- `JWT_SECRET` required on startup (panics if missing or <32 bytes)
 
 ## File Organization
 
 ```
 src/
 ├── api/              # HTTP layer (handlers, routes, middleware)
-├── auth/             # Authentication modules (jwt, web3, fido2)
-├── db/               # Database layer (pool, models)
-├── cache/            # Redis cache (pool, operations)
+├── auth/             # Auth modules (jwt, fido2, web3, jit, keys, capabilities, mcp)
+├── db/               # SQLite pool + models
 ├── utils/            # Utilities
 ├── lib.rs            # Library exports
 ├── main.rs           # Binary entry point
 ├── error.rs          # Error types
 ├── config.rs         # Configuration
-└── state.rs          # Application state
+└── state.rs          # AppState
 ```
 
 ## Async/Await Guidelines
 
 - Use `tokio::test` for async tests
-- Always annotate async functions with `async fn`
-- Use `.await` properly - don't block in async context
-- Prefer `tokio::spawn` for concurrent operations when appropriate
+- Avoid `std::thread::spawn`
+- Use `tokio::spawn` for concurrent operations when appropriate
+- Always prefer `.await` over blocking calls

@@ -1,4 +1,4 @@
-# Astral Key - Task Completion Checklist
+# Astral Key — Task Completion Checklist
 
 When you complete a development task, follow this checklist:
 
@@ -6,23 +6,19 @@ When you complete a development task, follow this checklist:
 
 ```bash
 # Ensure code compiles
-cargo build
+cargo check
 
-# Run all tests
-just test
-# or: cargo test --all-features
+# Run tests
+cargo test --lib
 
-# Run linter (must pass with no warnings)
-just lint
-# or: cargo clippy --all-features -- -D warnings
+# Run linter
+cargo clippy -- -D warnings
 ```
 
 ## 2. Format Code
 
 ```bash
-# Format Rust code
-just fmt
-# or: cargo fmt && nixpkgs-fmt .
+cargo fmt
 ```
 
 ## 3. Database Changes
@@ -30,96 +26,19 @@ just fmt
 If you modified the database schema:
 
 ```bash
-# Create migration
-just migrate-new <descriptive_name>
-
-# Run migration to verify
-just migrate
+cargo install sqlx-cli
+sqlx migrate add -r <description>
 ```
 
-**Never commit database changes without a migration!**
+Files go in `migrations/` directory. Migrations run automatically on startup.
 
 ## 4. Documentation
 
-- [ ] Update relevant module documentation (`///` comments)
-- [ ] Update public API docs (rustdoc)
-- [ ] Update STATUS.md if implementing roadmap items
-- [ ] Update TESTING.md if adding new test coverage
+- [ ] Update `knowledge.md` if project structure or commands changed
+- [ ] Update `docs/api.md` if endpoints changed
+- [ ] Update `docs/errors.md` if error types changed
+- [ ] Update `ROADMAP.md` if completing roadmap items
 
 ## 5. Commit
 
-Follow conventional commit format:
-
-```
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer]
-```
-
-Run pre-commit checks (if configured):
-```bash
-just pre-commit
-```
-
-## 6. Before Opening PR
-
-```bash
-# Full test suite
-just test
-
-# Linting
-just lint
-
-# Format check
-cargo fmt --check
-
-# Security audit
-just audit
-
-# Documentation builds
-cargo doc --no-deps
-```
-
-## Quality Gates
-
-- [ ] All tests pass
-- [ ] No clippy warnings
-- [ ] Code formatted
-- [ ] Documentation updated
-- [ ] Database migrations included (if applicable)
-- [ ] No new security vulnerabilities (`cargo audit`)
-- [ ] Commit message follows conventions
-
-## Specific Checks by Task Type
-
-### Feature Addition
-- [ ] Feature flag in Cargo.toml (if needed)
-- [ ] Integration tests added
-- [ ] API documentation updated
-- [ ] STATUS.md updated
-
-### Bug Fix
-- [ ] Regression test added
-- [ ] Root cause documented in commit
-
-### Refactoring
-- [ ] Tests pass before and after
-- [ ] No behavior changes
-
-### Database Changes
-- [ ] Migration reversible
-- [ ] Tested with fresh database
-- [ ] Model types updated
-
-### Authentication Changes
-- [ ] Security implications reviewed
-- [ ] Token blacklist considered
-- [ ] Session management updated
-
-## After Merge
-
-- [ ] Delete feature branch
-- [ ] Update ROADMAP.md if needed
-- [ ] Close related issues
+Follow conventional commit format and run `cargo fmt` before committing.

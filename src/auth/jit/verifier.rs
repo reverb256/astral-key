@@ -198,13 +198,16 @@ impl JitVerifier {
                 let mldsa_sig_bytes = BASE64
                     .decode(mldsa_b64)
                     .map_err(|e| VerificationError::Decode(format!("ML-DSA sig base64: {}", e)))?;
-                use pqcrypto_mldsa::mldsa65::{verify_detached_signature, DetachedSignature, PublicKey};
+                use pqcrypto_mldsa::mldsa65::{
+                    verify_detached_signature, DetachedSignature, PublicKey,
+                };
                 use pqcrypto_traits::sign::{DetachedSignature as _, PublicKey as _};
                 let pk = PublicKey::from_bytes(pk_bytes).map_err(|_| {
                     VerificationError::Decode("Invalid registered ML-DSA public key".to_string())
                 })?;
-                let sig_obj = DetachedSignature::from_bytes(&mldsa_sig_bytes)
-                    .map_err(|_| VerificationError::Decode("Invalid ML-DSA signature length".to_string()))?;
+                let sig_obj = DetachedSignature::from_bytes(&mldsa_sig_bytes).map_err(|_| {
+                    VerificationError::Decode("Invalid ML-DSA signature length".to_string())
+                })?;
                 match verify_detached_signature(&sig_obj, signed_data.as_bytes(), &pk) {
                     Ok(()) => {}
                     Err(_) => return Err(VerificationError::InvalidSignature),

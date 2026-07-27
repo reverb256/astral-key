@@ -57,8 +57,8 @@ struct Config {
 
 impl Config {
     fn from_env() -> Self {
-        let haven_url = std::env::var("HAVEN_URL")
-            .unwrap_or_else(|_| "http://localhost:4000".to_string());
+        let haven_url =
+            std::env::var("HAVEN_URL").unwrap_or_else(|_| "http://localhost:4000".to_string());
         let haven_token =
             std::env::var("HAVEN_TOKEN").expect("HAVEN_TOKEN must be set (Haven Bearer token)");
         let port = std::env::var("HAVEN_PORT")
@@ -126,7 +126,10 @@ async fn send_message(
     State(state): State<AppState>,
     Json(req): Json<SendRequest>,
 ) -> Result<Json<SendResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let url = format!("{}/api/channels/{}/messages", state.config.haven_url, req.channel_code);
+    let url = format!(
+        "{}/api/channels/{}/messages",
+        state.config.haven_url, req.channel_code
+    );
     let resp = match state
         .http_client
         .post(&url)
@@ -153,11 +156,17 @@ async fn send_message(
 
     if resp.status().is_success() {
         info!("Relayed message to channel {}", req.channel_code);
-        Ok(Json(SendResponse { ok: true, error: None }))
+        Ok(Json(SendResponse {
+            ok: true,
+            error: None,
+        }))
     } else {
         let status = resp.status();
         let body: serde_json::Value = resp.json().await.unwrap_or_default();
-        let err_msg = body["error"].as_str().unwrap_or("unknown Haven error").to_string();
+        let err_msg = body["error"]
+            .as_str()
+            .unwrap_or("unknown Haven error")
+            .to_string();
         warn!("Haven returned {}: {}", status, err_msg);
         Err((status, Json(ErrorResponse { error: err_msg })))
     }
@@ -244,7 +253,9 @@ async fn run_haven_socket(state: AppState) -> Result<()> {
     let _ = client
         .emit(
             "authenticate",
-            Payload::Text(vec![serde_json::json!({ "token": state.config.haven_token })]),
+            Payload::Text(vec![
+                serde_json::json!({ "token": state.config.haven_token }),
+            ]),
         )
         .await;
 
@@ -259,8 +270,7 @@ async fn run_haven_socket(state: AppState) -> Result<()> {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
