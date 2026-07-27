@@ -1,0 +1,55 @@
+# Astral Key — Stale Issue & PR Management
+# https://github.com/actions/stale
+
+name: Stale
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    # Allow manual triggering
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # Issue settings
+          stale-issue-message: >
+            This issue has been automatically marked as stale because it has not had
+            recent activity. It will be closed in 14 days if no further activity occurs.
+            If this is still relevant, please comment or update the issue.
+          stale-issue-label: "stale"
+          days-before-issue-stale: 90
+          days-before-issue-close: 14
+
+          # PR settings
+          stale-pr-message: >
+            This pull request has been automatically marked as stale because it has not
+            had recent activity. It will be closed in 14 days if no further activity occurs.
+          stale-pr-label: "stale"
+          days-before-pr-stale: 60
+          days-before-pr-close: 14
+
+          # Don't stale/close issues/PRs with these labels
+          exempt-issue-labels: "pinned,security,enhancement,bug,certified-ready"
+          exempt-pr-labels: "pinned,security,dependencies"
+
+          # Don't stale/close issues assigned to milestones
+          exempt-all-milestones: true
+
+          # Label to apply when closing
+          close-issue-label: "closed-stale"
+          close-pr-label: "closed-stale"
+
+          # Only one operation per run to stay within rate limits
+          operations-per-run: 30
+
+          # Don't delete branches when closing PRs
+          delete-branch: false
