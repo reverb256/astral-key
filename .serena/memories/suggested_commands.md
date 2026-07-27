@@ -1,148 +1,88 @@
-# Astral Key - Development Commands
-
-## Using `just` (Recommended)
-
-The project uses a `justfile` for common development tasks.
-
-### Development
-```bash
-just dev           # Start dev server with hot reload (cargo watch)
-just run           # Start server without hot reload
-just shell         # Enter Nix development shell
-just update        # Update flake inputs
-just flake-check   # Check flake validity
-```
-
-### Testing
-```bash
-just test            # Run all tests with all features
-just test-coverage   # Run tests with tarpaulin coverage report
-```
-
-### Database
-```bash
-just db-up        # Start PostgreSQL and Redis via docker-compose
-just db-down      # Stop database services
-just migrate      # Run database migrations
-just migrate-new <name>  # Create a new migration
-```
-
-### Code Quality
-```bash
-just fmt          # Format code (cargo fmt + nixpkgs-fmt)
-just lint         # Run clippy with -D warnings + cargo audit
-just audit        # Security audit (cargo audit + cargo deny)
-just deps-check   # Check for outdated dependencies
-```
-
-### Building
-```bash
-just build        # Build production binary with release optimizations
-just container    # Build container image via Nix
-just clean        # Clean build artifacts
-```
-
-### Infrastructure
-```bash
-just vaultwarden-up    # Start Vaultwarden for local development
-just logs <service>    # View logs for a service
-```
-
-### Documentation
-```bash
-just docs         # Generate and open rustdoc documentation
-```
+# Astral Key — Development Commands
 
 ## Using `cargo` directly
 
 ```bash
 # Building
-cargo build                          # Debug build
-cargo build --release               # Release build
-cargo build --release --features production  # Production build
+cargo build                              # Debug build (whole workspace)
+cargo build -p mosaic-identity           # Debug build (MIS only)
+cargo build --release                    # Release build
+cargo build -p mosaic-identity --features pq --release  # MIS with PQ
 
 # Running
-cargo run                           # Start server
-cargo watch -x run                  # Start with hot reload
+JWT_SECRET=$(openssl rand -hex 32) cargo run   # Auth sidecar on :8080
+cargo run -p mosaic-identity -- --database "sqlite:///tmp/mis.db?mode=rwc"  # MIS on :8081
 
 # Testing
-cargo test                          # Run all tests
-cargo test --lib                    # Unit tests only
-cargo test --test <test_name>       # Specific integration test
-cargo test -- --nocapture           # Show test output
+cargo test --lib                         # All unit tests (no external deps)
+cargo test --lib -- --nocapture          # With stdout
+cargo test --lib jwt::                   # Specific module
+cargo test -p mosaic-identity            # MIS tests
+cargo watch -x 'test --lib'              # Watch mode (needs cargo-watch)
 
 # Formatting & Linting
-cargo fmt                           # Format code
-cargo clippy                        # Run linter
-cargo clippy --all-features -- -D warnings  # Strict linting
+cargo fmt                                # Format code
+cargo clippy -- -D warnings              # Lint
+cargo clippy --all-features -- -D warnings  # Strict linting (CI level)
 
 # Documentation
-cargo doc --no-deps                 # Generate documentation
-cargo doc --no-deps --open          # Generate and open docs
+cargo doc --no-deps                      # Generate documentation
 ```
 
-## Using `nix`
+## Using Docker
+
+```bash
+# Start the auth sidecar (SQLite, single service)
+docker compose up -d
+
+# With custom secret
+JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
+
+# Build images
+docker build -t ghcr.io/reverb256/astral-key:latest -f Containerfile .
+docker build -t nexus:5000/mosaic-identity:v0.1.0 -f Dockerfile.mosaic-identity .
+docker build -t nexus:5000/mosaic-bridges:v0.1.0 -f Dockerfile.bridges .
+```
+
+## Using Nix
 
 ```bash
 nix develop              # Enter development environment
 nix build                # Build default package
-nix build .#container    # Build container image
-nix flake update         # Update flake inputs
-nix flake check          # Validate flake
-```
-
-## Docker Commands
-
-```bash
-# Start all services
-docker-compose up -d
-
-# Start specific services
-docker-compose up -d postgres redis vaultwarden
-
-# Check service status
-docker-compose ps
-
-# View logs
-docker-compose logs -f astral-key
-docker-compose logs -f postgres
-
-# Stop services
-docker-compose down
-```
-
-## Database Migrations (SQLx)
-
-```bash
-# Run migrations
-sqlx migrate run --database-url postgresql://postgres:postgres@localhost/astral_key
-
-# Create new migration
-sqlx migrate add <migration_name> --database-url postgresql://postgres:postgres@localhost/astral_key
-
-# Build migrations to Rust (compile-time check)
-cargo build --features sqlx-macros
+nix flake check          # Validate flake (runs tests + clippy + fmt)
 ```
 
 ## Manual Testing
 
 ```bash
-# Health check
+# Health check (returns plain text "OK")
 curl http://localhost:8080/health
 
-# Readiness check (includes DB and Redis)
+# Readiness check
 curl http://localhost:8080/ready
 
 # Request Web3 nonce
 curl -X POST http://localhost:8080/api/v1/auth/web3/nonce \
   -H "Content-Type: application/json" \
-  -d '{"domain": "localhost", "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", "chain_id": 1}'
+  -d '{"domain": "maplespike.ca", "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", "chain_id": 1}'
 ```
 
-## System Utilities (Linux/NixOS)
+## Database Migrations
 
-The project runs on Linux. Common utilities:
-- `ls`, `cd`, `grep`, `find` - Standard file operations
-- `git` - Version control
-- `docker`, `docker-compose` - Container management
-- `nix`, `nix-shell` - Nix package manager
+```bash
+# Install sqlx-cli
+cargo install sqlx-cli
+
+# Create a migration
+sqlx migrate add -r description_of_change
+
+# Migrations run automatically on server start
+```
+
+## CI/CD
+
+GitHub Actions workflow at `.github/workflows/ci.yml`:
+- Lint: `cargo fmt --check`, `cargo clippy`
+- Test: `cargo test`
+- Audit: `cargo audit`
+- Build: Docker image build + push
