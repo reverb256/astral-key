@@ -178,7 +178,11 @@ async fn key_generate(
         pubkey_hex: pubkey,
         key_id,
         privkey_pkcs8_hex: privkey,
-        algorithm: if has_pq { "Ed25519+ML-DSA-65".into() } else { "Ed25519".into() },
+        algorithm: if has_pq {
+            "Ed25519+ML-DSA-65".into()
+        } else {
+            "Ed25519".into()
+        },
         created_at,
         rotated_from: req.rotated_from,
     }))
@@ -309,10 +313,7 @@ async fn sign_hybrid_handler(
         .privkey_pkcs8_hex
         .as_deref()
         .ok_or_else(|| Error::BadRequest("Cannot sign: no private key stored".into()))?;
-    let ml_dsa_privkey = key
-        .ml_dsa_privkey_hex
-        .clone()
-        .unwrap_or_default();
+    let ml_dsa_privkey = key.ml_dsa_privkey_hex.clone().unwrap_or_default();
 
     let msg = hex::decode(&req.message_hex)
         .map_err(|_| Error::BadRequest("message_hex is not valid hex".into()))?;

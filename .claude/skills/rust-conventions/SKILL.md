@@ -46,7 +46,6 @@ pub async fn get_user(id: Uuid) -> Result<User> {
 
 ### Use `sqlx::query_as` for type-safe queries
 ```rust
-// Returns strongly-typed User struct
 sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
     .bind(id)
     .fetch_one(&pool)
@@ -70,6 +69,8 @@ tx.commit().await?;
 // Table: fido2_credentials → Model: Fido2Credential
 ```
 
+**Important:** Astral Key uses **SQLite only** — no PostgreSQL, no Redis. All SQL must be SQLite-compatible.
+
 ## Async/Await Patterns
 
 ### Use `#[tokio::test]` for async tests
@@ -89,7 +90,7 @@ mod tests {
 ### Never block in async context
 - No `std::thread::sleep` - use `tokio::time::sleep`
 - No blocking I/O - use async equivalents
-- No heavy CPU work - spawn to blocking task thread
+- No heavy CPU work - use `tokio::task::spawn_blocking`
 
 ## Testing Conventions
 
@@ -106,11 +107,6 @@ mod tests {
 }
 ```
 
-### Integration tests in `tests/` directory
-- Named `*_integration_tests.rs` or descriptively
-- Test API endpoints and module interactions
-- Use Testcontainers for external services
-
 ### Test naming: `test_<what>_<condition>_<expected>`
 ```rust
 test_user_creation_with_valid_email_succeeds()
@@ -118,16 +114,13 @@ test_signature_verification_with_invalid_signature_fails()
 test_session_refresh_with_expired_token_returns_error()
 ```
 
-### Target: >80% code coverage
-
 ## Module Organization
 
 ```
 src/
-├── api/              # HTTP layer (handlers, routes)
-├── auth/             # Authentication (jwt, web3, fido2)
-├── db/               # Database (pool, models)
-├── cache/            # Redis (pool, operations)
+├── api/              # HTTP layer (handlers, routes, middleware)
+├── auth/             # Authentication (jwt, fido2, web3, jit, keys, capabilities, mcp)
+├── db/               # SQLite (pool, models)
 └── utils/            # Utilities
 ```
 
@@ -135,8 +128,13 @@ src/
 
 ### JWT Middleware
 - Protected routes use `AuthenticatedUser` extractor
-- Token expiry: 15 min access, 7 day refresh
-- Always check Redis blacklist for revoked tokens
+- Token expiry: 15 min access, 7 day refresh (configurable via JWT_ env vars)
+
+### In-memory state (no Redis)
+- FIDO2 challenge state uses an in-memory `HashMap<String, (String, Instant)>` with TTL
+- SIWE nonces are stored in SQLite with a 15-minute TTL
+- Rate limiting uses an in-memory token bucket
+- No Redis, no external cache is needed
 
 ### Cryptographic Operations
 - Nonce generation must use cryptographically secure random
@@ -168,24 +166,23 @@ src/
 ///
 /// # Errors
 ///
-/// Returns error if RNG fails or Redis storage fails.
+/// Returns error if RNG or database write fails.
 ///
 /// # Examples
 ///
 /// ```
-/// let nonce = generate_nonce(&pool).await?;
-/// assert!(nonce.len() == 32);
+/// let nonce = generate_nonce(&state).await?;
+/// assert!(nonce.len() == 64);
 /// ```
-pub async fn generate_nonce(pool: &RedisPool) -> Result<String> {
+pub async fn generate_nonce(state: &AppState) -> Result<String> {
     // ...
 }
 ```
 
 ## Performance Considerations
 
-### Use connection pooling (already configured)
-- Database: `sqlx::PgPool`
-- Redis: `redis::Pool`
+### Use connection pooling (SQLite)
+- Database: `sqlx::sqlite::SqlitePool` with `max_connections: 5` (configurable)
 
 ### Prefer batch operations over loops
 ```rust
@@ -198,23 +195,20 @@ for id in ids {
 get_users(&ids).await?;
 ```
 
-### Cache frequently accessed data in Redis
-- User sessions
-- SIWE nonces (with TTL)
-- Rate limit counters
-
 ## Security Patterns
 
 ### Input validation
-- Use `validator` crate for struct validation
+- Validate all inputs with strict parsing
 - Never trust client input
-- Sanitize data before database queries
+- Use parameterized queries (SQLx does this automatically)
 
 ### Secrets management
-- Use environment variables for secrets
+- Use environment variables for all secrets
+- `JWT_SECRET` is required (≥32 bytes)
 - Never commit `.env` files
-- Use `secrecy` crate for sensitive strings
+- Never log secrets
 
 ### Rate limiting
-- Use `governor` crate for rate limiting
-- Store counters in Redis with TTL
+- In-memory token bucket (not Redis)
+- Default: 100 requests/minute, 200 burst
+- Returns `429 Too Many Requests` with `Retry-After` header

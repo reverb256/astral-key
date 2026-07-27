@@ -86,8 +86,7 @@ pub fn derive_ed25519_from_seed(seed: &[u8; 64]) -> (String, String, String) {
 /// Sign a message using a raw 32-byte Ed25519 seed (hex) via from_seed_unchecked.
 /// This is the HD path — no PKCS#8 wrapping needed.
 pub fn sign_with_seed(seed_hex: &str, msg: &[u8]) -> Result<String, Error> {
-    let seed = hex::decode(seed_hex)
-        .map_err(|_| Error::Crypto("Invalid hex in seed".into()))?;
+    let seed = hex::decode(seed_hex).map_err(|_| Error::Crypto("Invalid hex in seed".into()))?;
     if seed.len() != 32 {
         return Err(Error::Crypto("Seed must be 32 bytes".into()));
     }
