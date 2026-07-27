@@ -259,7 +259,7 @@ struct GitHubUser {
     avatar_url: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct GitHubEmail {
     email: String,
     primary: bool,
