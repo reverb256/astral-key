@@ -106,12 +106,13 @@ static RATE_LIMITER: OnceLock<RateLimiter> = OnceLock::new();
 
 /// Initialize the global rate limiter.
 ///
-/// Must be called **once** before any middleware runs (e.g. at the top of
-/// the route-setup function).  Panics if called a second time.
+/// Must be called before any middleware runs (e.g. at the top of the
+/// route-setup function).  Safe to call multiple times — subsequent calls
+/// are silently ignored (the first-set values are kept).
 pub fn init(max_rps: u32, max_burst: u32) {
     RATE_LIMITER
         .set(RateLimiter::new(max_rps, max_burst))
-        .expect("RateLimiter has already been initialized");
+        .ok();
 }
 
 fn rate_limiter() -> &'static RateLimiter {
