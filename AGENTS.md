@@ -115,6 +115,24 @@ Each bridge is a sidecar container. Selection via `BRIDGE_TYPE` env var.
 | discord | MIS, Discord Bot API | `BRIDGE_TYPE=discord` | Bot API client |
 | haven | MIS, Haven server | `BRIDGE_TYPE=haven` | Socket.IO adapter |
 
+## Environment variables (key subset)
+
+All config is read from env vars at runtime (see `src/config.rs` — `from_env()`).
+Full table with defaults: `docs/deployment.md` → Environment Variables.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERVER_HOST` / `SERVER_PORT` | `127.0.0.1` / `8080` | Listen address |
+| `DATABASE_URL` | `sqlite:astral_key.db?mode=rwc` | SQLite URL |
+| `JWT_SECRET` | — (required) | JWT signing key, ≥32 bytes. `openssl rand -hex 32` |
+| `FIDO2_RP_ID` | `localhost` | WebAuthn relying party ID |
+| `ASTRAL_WEB3_DOMAIN` | `maplespike.ca` | Canonical SIWE domain |
+| `JIT_ISSUER_KEY` | — (optional) | Ed25519 private key (64 hex). Enables JIT token minting |
+| `JIT_ISSUER_ID` | `ak:issuer:01` | Issuer ID embedded in minted JIT tokens |
+| `JIT_DEFAULT_TTL` | `3600` | Default TTL (seconds) for JIT tokens |
+| `OAUTH_BASE_URL` + `OAUTH_GITHUB_*` | — (optional) | GitHub OAuth (omit to disable) |
+| `RUST_LOG` | `info,astral_key=debug` | Tracing filter |
+
 ## Deploy
 
 MIS and bridges deploy as k8s pods in the `orchestration` namespace.
