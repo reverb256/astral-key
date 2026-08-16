@@ -76,9 +76,6 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
     let public_routes = Router::new()
         // Token verification (public — validates Bearer tokens for external services)
         .route("/auth/verify", post(handlers::auth::verify_token))
-        // API key verification (public — delegated services validate `ak_*` keys
-        // without needing a JWT of their own)
-        .route("/auth/keys/verify", post(handlers::keys::verify_key))
         // Signature verification (public — clients sign locally, server verifies)
         .route(
             "/identity/verify",
