@@ -26,7 +26,105 @@ pub async fn register_options(
     )
     .await?;
 
-    Ok(Json(RegistrationOptions {
+    Ok(Json(to_registration_options(challenge)))
+}
+
+/// First-user bootstrap — registration options.
+///
+/// Allowed ONLY while no user has a passkey yet (fresh install). After the
+/// first credential exists the normal JWT-protected register flow takes over.
+pub async fn bootstrap_options(
+    State(state): State<AppState>,
+    Json(request): Json<BootstrapOptionsRequest>,
+) -> Result<Json<RegistrationOptions>> {
+    use crate::db::models::User;
+
+    let pool = state.db.inner();
+    if User::credentialed_user_count(pool).await? > 0 {
+        return Err(AuthError::Forbidden(
+            "First-user registration is closed — sign in with your existing passkey".to_string(),
+        ));
+    }
+
+    let email = request.email.trim().to_lowercase();
+    if !email.contains('@') || email.len() < 3 {
+        return Err(AuthError::BadRequest(
+            "A valid email address is required".to_string(),
+        ));
+    }
+    let display_name = request.display_name.trim();
+    if display_name.is_empty() {
+        return Err(AuthError::BadRequest(
+            "A display name is required".to_string(),
+        ));
+    }
+
+    // Reuse a leftover user row from an aborted bootstrap attempt, if any.
+    let user = match User::get_by_email(pool, &email).await? {
+        Some(u) => u,
+        None => User::create_with_email(pool, Uuid::new_v4(), &email, display_name).await?,
+    };
+
+    let challenge = start_registration(&state, user.id, &email, display_name).await?;
+    Ok(Json(to_registration_options(challenge)))
+}
+
+/// First-user bootstrap — complete registration and mint a session token.
+pub async fn bootstrap_verify(
+    State(state): State<AppState>,
+    Json(request): Json<BootstrapVerifyRequest>,
+) -> Result<Json<TokenResponse>> {
+    use crate::db::models::{Fido2Credential, User};
+
+    let pool = state.db.inner();
+
+    // The registration challenge is keyed by user id; resolve via the email
+    // the browser submitted with the ceremony result.
+    let user = User::get_by_email(pool, &request.email)
+        .await?
+        .ok_or_else(|| {
+            AuthError::BadRequest(
+                "Bootstrap session not found — please start registration again".to_string(),
+            )
+        })?;
+
+    // Convert response JSON to internal type
+    let response: crate::auth::fido2::types::RegistrationResponse =
+        serde_json::from_value(request.response.clone())
+            .map_err(|e| AuthError::BadRequest(format!("Invalid registration response: {}", e)))?;
+
+    let registration_request = crate::auth::fido2::types::RegistrationRequest {
+        id: request.id.clone(),
+        raw_id: request.raw_id.clone(),
+        response,
+        type_: request.type_.clone(),
+        transports: vec![],
+    };
+
+    // Finish registration (validates challenge, returns credential info)
+    let result = finish_registration(&state, user.id, registration_request).await?;
+
+    // Store credential in database
+    Fido2Credential::create(pool, user.id, &result.credential_id, &result.public_key).await?;
+
+    // Mint a session so the browser can complete the OIDC flow immediately.
+    let jwt = state
+        .jwt
+        .as_ref()
+        .ok_or_else(|| AuthError::Internal("JWT service not initialized".to_string()))?;
+    let tokens = jwt.generate_token_pair(user.id)?;
+
+    Ok(Json(TokenResponse {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+    }))
+}
+
+/// Convert a registration challenge into the API response shape.
+fn to_registration_options(
+    challenge: crate::auth::fido2::types::RegistrationChallenge,
+) -> RegistrationOptions {
+    RegistrationOptions {
         challenge: challenge.challenge,
         rp: RelyingParty {
             id: challenge.rp.id,
@@ -51,7 +149,7 @@ pub async fn register_options(
             authenticator_attach: "platform".to_string(),
             user_verification: "preferred".to_string(),
         },
-    }))
+    }
 }
 
 /// Verify registration
@@ -110,15 +208,14 @@ pub async fn authenticate_options(
     // The authenticate_options should be called with a user identifier
     // For now, we'll require the client to know their user ID or we'll create a session-based lookup
 
-    // Try to parse as UUID first
+    // Accept either a user UUID (API clients) or an email (OIDC login page).
     let user_id = if let Ok(uuid) = Uuid::parse_str(&request.username) {
         uuid
     } else {
-        // If not a UUID, look for users by some other means
-        // For now, we'll return an error if no valid user ID is provided
-        return Err(AuthError::BadRequest(
-            "Username must be a valid user UUID".to_string(),
-        ));
+        User::get_by_email(pool, &request.username)
+            .await?
+            .ok_or_else(|| AuthError::NotFound("User not found".to_string()))?
+            .id
     };
 
     // Verify user exists
@@ -326,6 +423,24 @@ pub struct AuthenticateVerifyRequest {
 pub struct RegisterOptionsRequest {
     pub username: String,
     pub display_name: String,
+}
+
+/// First-user bootstrap: registration options request
+#[derive(Deserialize)]
+pub struct BootstrapOptionsRequest {
+    pub email: String,
+    pub display_name: String,
+}
+
+/// First-user bootstrap: registration verify request
+#[derive(Deserialize)]
+pub struct BootstrapVerifyRequest {
+    pub id: String,
+    pub raw_id: String,
+    pub response: serde_json::Value,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub email: String,
 }
 
 /// Authenticate options request

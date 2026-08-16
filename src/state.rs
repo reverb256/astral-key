@@ -75,6 +75,9 @@ pub struct AppState {
 
     // In-memory OAuth state store (for PKCE/state parameter verification)
     pub oauth_state: Fido2StateStore,
+
+    // OIDC provider (identity-provider side) — enabled when OIDC_ENABLED=true
+    pub oidc: Option<Arc<crate::auth::oidc::OidcService>>,
 }
 
 impl AppState {
@@ -89,13 +92,16 @@ impl AppState {
         db.run_migrations().await?;
 
         // Initialize JWT service — STRICT: refuses to start without a real secret.
-        let jwt_secret = std::env::var("JWT_SECRET")
-            .map(|s| s.trim().to_string())
+        // Prefer JWT_SECRET_FILE (secrets materialized on disk) over JWT_SECRET.
+        let jwt_secret = std::env::var("JWT_SECRET_FILE")
             .ok()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|s| s.trim().to_string())
+            .or_else(|| std::env::var("JWT_SECRET").ok().map(|s| s.trim().to_string()))
             .filter(|s| s.len() >= 32)
             .unwrap_or_else(|| {
                 panic!(
-                    "JWT_SECRET is required (>=32 bytes). Generate one with: openssl rand -hex 32"
+                    "JWT_SECRET (or JWT_SECRET_FILE) is required (>=32 bytes). Generate one with: openssl rand -hex 32"
                 )
             });
 
@@ -161,6 +167,27 @@ impl AppState {
             }
         };
 
+        // Initialize the OIDC provider (optional — requires OIDC_ENABLED=true)
+        let oidc = if config.oidc.enabled {
+            match build_oidc_service(&config) {
+                Ok(service) => {
+                    tracing::info!(
+                        "OIDC provider enabled (issuer={}, clients={})",
+                        service.issuer,
+                        service.clients.len(),
+                    );
+                    Some(Arc::new(service))
+                }
+                Err(e) => {
+                    tracing::error!("Failed to initialize OIDC provider: {}", e);
+                    None
+                }
+            }
+        } else {
+            tracing::info!("OIDC provider disabled — set OIDC_ENABLED=true to enable");
+            None
+        };
+
         tracing::info!("Application state initialized");
 
         Ok(Self {
@@ -172,6 +199,7 @@ impl AppState {
             fido2,
             jit_issuer,
             jit_verifier,
+            oidc,
         })
     }
 
@@ -186,4 +214,45 @@ impl AppState {
     pub async fn health_check(&self) -> Result<bool> {
         self.db.health_check().await
     }
+}
+
+/// Build the OIDC provider service from config.
+///
+/// The Ed25519 signing key comes from `OIDC_SIGNING_KEY` (64 hex chars) or
+/// `OIDC_SIGNING_KEY_FILE`. When neither is set a fresh ephemeral key is
+/// generated — fine for dev/tests, but the JWKS would change on restart, so
+/// production deployments MUST pin one.
+fn build_oidc_service(config: &crate::config::Config) -> Result<crate::auth::oidc::OidcService> {
+    let seed: [u8; 32] = match config.oidc.signing_key_hex.as_deref() {
+        Some(hex_str) => {
+            let bytes = hex::decode(hex_str.trim()).map_err(|e| {
+                AuthError::Config(format!("OIDC_SIGNING_KEY must be 64 hex chars: {e}"))
+            })?;
+            if bytes.len() != 32 {
+                return Err(AuthError::Config(
+                    "OIDC_SIGNING_KEY must decode to 32 bytes (64 hex chars)".to_string(),
+                ));
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            arr
+        }
+        None => {
+            tracing::warn!(
+                "OIDC_SIGNING_KEY not set — generating an EPHEMERAL Ed25519 key. \
+                 JWKS will change on restart; pin a key in production."
+            );
+            let mut arr = [0u8; 32];
+            rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut arr);
+            arr
+        }
+    };
+
+    crate::auth::oidc::OidcService::new(
+        config.oidc.issuer.clone(),
+        config.oidc.clients.clone(),
+        seed,
+        std::time::Duration::from_secs(config.oidc.access_token_ttl),
+        std::time::Duration::from_secs(config.oidc.id_token_ttl),
+    )
 }

@@ -7,5 +7,6 @@ pub mod identity;
 pub mod jit;
 pub mod keys;
 pub mod oauth;
+pub mod oidc;
 pub mod session;
 pub mod web3;
