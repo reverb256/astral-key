@@ -80,8 +80,11 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # HTTP client (for OAuth token exchange and GitHub API calls)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
-# Ed25519 for ZK JIT capability tokens
+# Ed25519 for ZK JIT capability tokens and OIDC id_token signing
 ed25519-dalek = "2"
+
+# Constant-time comparison for OIDC client secret validation
+subtle = "2"
 
 # Post-quantum (ML-DSA-65, FIPS 204) for hybrid JIT/agent tokens
 pqcrypto-mldsa = "0.1"

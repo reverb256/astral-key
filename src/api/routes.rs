@@ -76,6 +76,9 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
     let public_routes = Router::new()
         // Token verification (public — validates Bearer tokens for external services)
         .route("/auth/verify", post(handlers::auth::verify_token))
+        // API key verification (public — delegated services validate `ak_*` keys
+        // without needing a JWT of their own)
+        .route("/auth/keys/verify", post(handlers::keys::verify_key))
         // Signature verification (public — clients sign locally, server verifies)
         .route(
             "/identity/verify",
@@ -112,9 +115,35 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
         .route(
             "/auth/oauth/github/callback",
             get(handlers::oauth::github_callback),
+        )
+        // First-user bootstrap registration (public — disabled once any
+        // passkey exists; lets the OIDC login page create the admin user)
+        .route(
+            "/auth/fido2/bootstrap/options",
+            post(handlers::fido2::bootstrap_options),
+        )
+        .route(
+            "/auth/fido2/bootstrap/verify",
+            post(handlers::fido2::bootstrap_verify),
         );
 
+    // OIDC provider endpoints live at the top level (RPs resolve discovery
+    // relative to the issuer root, e.g. https://auth.lan/.well-known/...).
+    let oidc_routes = Router::new()
+        .route(
+            "/.well-known/openid-configuration",
+            get(handlers::oidc::discovery),
+        )
+        .route("/.well-known/jwks.json", get(handlers::oidc::jwks))
+        .route(
+            "/oidc/authorize",
+            get(handlers::oidc::authorize_get).post(handlers::oidc::authorize_post),
+        )
+        .route("/oidc/token", post(handlers::oidc::token))
+        .route("/oidc/userinfo", get(handlers::oidc::userinfo));
+
     router
+        .merge(oidc_routes)
         .nest(
             "/api/v1",
             public_routes

@@ -97,6 +97,7 @@ JWT_SECRET=$(openssl rand -hex 32) ./target/release/astral-key
 | **Ed25519 Identity** | Public-key identity management, signature verification, contact graph. |
 | **ZK JIT Capability Tokens** | Ed25519-signed scoped tokens with epoch-based revocation. |
 | **API Key Management** | Argon2id-hashed API keys with prefix format `ak_prod_...`. |
+| **OIDC Provider** | Astral Key as an OpenID Connect identity provider (authorization-code flow + PKCE, EdDSA id_tokens) for oauth2-proxy and other relying parties. |
 
 ### 🔜 Coming Soon
 
@@ -105,7 +106,6 @@ JWT_SECRET=$(openssl rand -hex 32) ./target/release/astral-key
 | **SecretSpec integration** | Declare secrets in `secretspec.toml`, resolve from any of 15 providers, inject via `secretspec run -- astral-key` |
 | **SOPS provider (planned)** | Encrypted config files decrypted via SecretSpec, keys resolved through astral-key's auth layer |
 | **Vault-compatible endpoint** | Expose `/v1/secret/data/<path>` so SecretSpec's existing `vault` provider can read secrets from astral-key — no SecretSpec fork needed |
-| **OIDC provider** | Single passkey for your entire homelab stack — Grafana, Gitea, OpenWebUI, etc. via standard OIDC |
 | **AI agent tokens** | Short-lived, scoped, revocable tokens for agent tool access |
 
 ---
@@ -198,6 +198,35 @@ export FIDO2_RP_ID=localhost
 export FIDO2_RP_NAME="My App"
 export FIDO2_ORIGINS=http://localhost:8080
 ```
+
+### OIDC provider (identity-provider side)
+
+Enable the OIDC provider to let oauth2-proxy (or any RP) authenticate users
+with passkeys:
+
+```bash
+export OIDC_ENABLED=true
+export OIDC_ISSUER=https://auth.lan
+export OIDC_CLIENT_ID=astral-key-oidc
+export OIDC_CLIENT_SECRET_FILE=/run/secrets/astral-key-oidc-client-secret
+export OIDC_REDIRECT_URIS=https://auth.lan/oauth2/callback
+# 64-hex Ed25519 seed (pin this — the JWKS changes across restarts otherwise)
+export OIDC_SIGNING_KEY_FILE=/run/secrets/astral-key-oidc-signing-key
+```
+
+Endpoints (all relative to the issuer root):
+
+| Endpoint | Description |
+|----------|-------------|
+| `/.well-known/openid-configuration` | OIDC discovery document |
+| `/.well-known/jwks.json` | Ed25519 signing key (JWKS) |
+| `/oidc/authorize` | Authorization endpoint (GET: login page, POST: code issue) |
+| `/oidc/token` | Token endpoint (authorization-code + PKCE) |
+| `/oidc/userinfo` | Userinfo endpoint |
+
+The first user is bootstrapped via `POST /api/v1/auth/fido2/bootstrap/options` +
+`/bootstrap/verify` (enabled only while no passkey exists) — the login page
+offers this automatically on a fresh install.
 
 **With SecretSpec** (recommended):
 
