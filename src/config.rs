@@ -15,6 +15,7 @@ pub struct Config {
     pub jwt: JwtConfig,
     pub jit: JitConfig,
     pub oauth: OAuthConfig,
+    pub oidc: OidcConfig,
 }
 
 /// Server configuration
@@ -159,6 +160,51 @@ fn default_oauth_base_url() -> String {
     "http://localhost:8080".to_string()
 }
 
+/// OIDC provider client registration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcClientConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uris: Vec<String>,
+}
+
+/// OIDC provider (identity-provider side) configuration.
+///
+/// Astral Key can act as an OIDC **provider** so that oauth2-proxy and other
+/// relying parties can authenticate users with passkeys. Enabled by setting
+/// `OIDC_ENABLED=true`. The signing key is an Ed25519 seed (64 hex chars);
+/// if omitted a fresh ephemeral key is generated at startup (fine for dev,
+/// but production deployments MUST pin one via `OIDC_SIGNING_KEY` or
+/// `OIDC_SIGNING_KEY_FILE` so JWKS stays stable across restarts).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OidcConfig {
+    pub enabled: bool,
+    /// Public issuer URL, e.g. `https://auth.lan`. Must match what relying
+    /// parties are configured with.
+    pub issuer: String,
+    /// Hex-encoded 32-byte Ed25519 seed (64 hex chars).
+    pub signing_key_hex: Option<String>,
+    pub clients: Vec<OidcClientConfig>,
+    /// Lifetime of OIDC access tokens (seconds).
+    pub access_token_ttl: u64,
+    /// Lifetime of OIDC id_tokens (seconds).
+    pub id_token_ttl: u64,
+}
+
+impl Default for OidcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            issuer: "https://auth.lan".to_string(),
+            signing_key_hex: None,
+            clients: Vec::new(),
+            access_token_ttl: 3600,
+            id_token_ttl: 600,
+        }
+    }
+}
+
 impl Config {
     /// Load configuration from environment variables
     pub fn from_env() -> anyhow::Result<Self> {
@@ -213,9 +259,69 @@ impl Config {
                     .unwrap_or_else(|_| default_oauth_base_url()),
                 github: Self::load_github_oauth_config(),
             },
+            oidc: Self::load_oidc_config(),
         };
 
         Ok(config)
+    }
+
+    fn load_oidc_config() -> OidcConfig {
+        let enabled = std::env::var("OIDC_ENABLED")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
+            .unwrap_or(false);
+
+        if !enabled {
+            return OidcConfig::default();
+        }
+
+        let issuer =
+            std::env::var("OIDC_ISSUER").unwrap_or_else(|_| "https://auth.lan".to_string());
+
+        // Signing key: explicit hex env first, then key file, then ephemeral.
+        let signing_key_hex = match std::env::var("OIDC_SIGNING_KEY") {
+            Ok(k) if !k.is_empty() => Some(k),
+            _ => std::env::var("OIDC_SIGNING_KEY_FILE")
+                .ok()
+                .filter(|p| !p.is_empty())
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .map(|s| s.trim().to_string()),
+        };
+
+        let client_id =
+            std::env::var("OIDC_CLIENT_ID").unwrap_or_else(|_| "astral-key-oidc".to_string());
+        let client_secret = std::env::var("OIDC_CLIENT_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                std::env::var("OIDC_CLIENT_SECRET_FILE")
+                    .ok()
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+                    .map(|s| s.trim().to_string())
+            })
+            .unwrap_or_default();
+        let redirect_uris = std::env::var("OIDC_REDIRECT_URIS")
+            .ok()
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_else(|| vec!["https://auth.lan/oauth2/callback".to_string()]);
+
+        OidcConfig {
+            enabled,
+            issuer,
+            signing_key_hex,
+            clients: vec![OidcClientConfig {
+                client_id,
+                client_secret,
+                redirect_uris,
+            }],
+            access_token_ttl: std::env::var("OIDC_ACCESS_TOKEN_TTL")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(3600),
+            id_token_ttl: std::env::var("OIDC_ID_TOKEN_TTL")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(600),
+        }
     }
 
     fn load_github_oauth_config() -> Option<OAuthProviderConfig> {

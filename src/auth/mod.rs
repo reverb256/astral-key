@@ -7,6 +7,7 @@ pub mod fido2;
 pub mod jit;
 pub mod jwt;
 pub mod keys;
+pub mod oidc;
 pub mod web3;
 
 /// MCP server (feature-gated).
