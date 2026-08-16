@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Astral Key · Sign in</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #2a2f3a; --text: #e6e8ee;
+    --muted: #8b93a5; --accent: #7c8cff; --accent-2: #5b6cff; --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 36px 32px; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,.35);
+  }
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: .3px; margin-bottom: 4px; }
+  .logo span { color: var(--accent); }
+  .tagline { color: var(--muted); font-size: 13px; margin-bottom: 26px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 11px 12px; font-size: 14px; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  .btn {
+    width: 100%; margin-top: 20px; border: none; border-radius: 8px; padding: 12px;
+    font-size: 15px; font-weight: 600; cursor: pointer; color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    transition: filter .15s;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:disabled { opacity: .55; cursor: default; }
+  .btn.ghost {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    margin-top: 10px; font-weight: 500;
+  }
+  .msg { margin-top: 14px; font-size: 13px; min-height: 18px; }
+  .msg.error { color: var(--danger); }
+  .msg.info { color: var(--muted); }
+  .divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 2px; color: var(--muted); font-size: 12px; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">Astral <span>Key</span></div>
+  <div class="tagline">Sign in with your passkey</div>
+
+  <!-- Sign-in -->
+  <form id="login-form" autocomplete="off">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" placeholder="you@example.lan" required>
+    <button class="btn" type="submit" id="login-btn">Sign in with passkey</button>
+  </form>
+
+  <div class="divider" id="divider">or</div>
+  <button class="btn ghost" id="register-btn">Register a passkey</button>
+  <form id="register-form" class="hidden" autocomplete="off">
+    <label for="reg-email">Email</label>
+    <input id="reg-email" name="email" type="email" placeholder="you@example.lan" required>
+    <label for="reg-name">Display name</label>
+    <input id="reg-name" name="name" type="text" placeholder="Jane Doe" required>
+    <button class="btn" type="submit" id="register-submit">Create passkey</button>
+  </form>
+
+  <div class="msg" id="msg"></div>
+</div>
+
+<script>
+"use strict";
+const SESSION_ID = "__SESSION_ID__";
+
+const $ = (id) => document.getElementById(id);
+const msgEl = $("msg");
+
+function setMsg(text, kind) {
+  msgEl.textContent = text || "";
+  msgEl.className = "msg" + (kind ? " " + kind : "");
+}
+function setBusy(btn, busy) {
+  if (btn) btn.disabled = busy;
+}
+
+// --- base64url helpers ---
+function b64ToBuf(s) {
+  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function bufToB64(buf) {
+  const bytes = new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+// The API serializes some string fields as JSON-encoded strings; unwrap.
+function jd(s) {
+  let v = JSON.parse(s);
+  while (typeof v === "string") {
+    try { v = JSON.parse(v); } catch (_) { break; }
+  }
+  return v;
+}
+
+async function api(path, body) {
+  const resp = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) {
+    let detail = "Request failed (" + resp.status + ")";
+    try {
+      const err = await resp.json();
+      detail = err.error || err.message || detail;
+    } catch (_) {}
+    throw new Error(detail);
+  }
+  return resp.json();
+}
+
+// Build the assertion body sent to the verify endpoint.
+function credentialToVerifyBody(cred) {
+  const r = cred.response;
+  return {
+    id: cred.id,
+    raw_id: bufToB64(cred.rawId),
+    response: {
+      clientDataJSON: bufToB64(r.clientDataJSON),
+      authenticatorData: bufToB64(r.authenticatorData),
+      signature: bufToB64(r.signature),
+      userHandle: r.userHandle ? bufToB64(r.userHandle) : null
+    },
+    type: cred.type
+  };
+}
+
+async function completeAuthorize(accessToken) {
+  setMsg("Completing sign-in…");
+  const data = await api("/oidc/authorize", {
+    session_id: SESSION_ID,
+    access_token: accessToken
+  });
+  window.location.href = data.redirect_url;
+}
+
+// --- sign in ---
+$("login-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = $("login-btn");
+  const email = $("email").value.trim();
+  if (!email) { setMsg("Enter your email address.", "error"); return; }
+  setBusy(btn, true);
+  setMsg("");
+
+  try {
+    const options = await api("/api/v1/auth/fido2/authenticate/options", { username: email });
+    const publicKey = {
+      challenge: b64ToBuf(jd(options.challenge)),
+      allowCredentials: (options.allow_credentials || []).map((c) => ({
+        type: c.type,
+        id: b64ToBuf(jd(c.id))
+      })),
+      userVerification: options.user_verification || "preferred",
+      timeout: options.timeout || 60000
+    };
+
+    setMsg("Waiting for your passkey…", "info");
+    const cred = await navigator.credentials.get({ publicKey });
+    const tokens = await api("/api/v1/auth/fido2/authenticate/verify", credentialToVerifyBody(cred));
+    await completeAuthorize(tokens.access_token);
+  } catch (err) {
+    const m = String(err && err.message || err);
+    if (m.includes("not found") || m.includes("No credentials") || m.includes("404")) {
+      setMsg("No account found for that email. Register a passkey to get started.", "error");
+    } else {
+      setMsg(m, "error");
+    }
+  } finally {
+    setBusy(btn, false);
+  }
+});
+
+// --- register (first user bootstrap) ---
+$("register-btn").addEventListener("click", () => {
+  $("login-form").classList.add("hidden");
+  $("register-btn").classList.add("hidden");
+  $("register-form").classList.remove("hidden");
+  $("divider").classList.add("hidden");
+});
+$("register-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = $("register-submit");
+  const email = $("reg-email").value.trim();
+  const name = $("reg-name").value.trim();
+  if (!email || !name) { setMsg("Enter both email and display name.", "error"); return; }
+  setBusy(btn, true);
+  setMsg("");
+
+  try {
+    const options = await api("/api/v1/auth/fido2/bootstrap/options", {
+      email: email,
+      display_name: name
+    });
+    const publicKey = {
+      challenge: b64ToBuf(jd(options.challenge)),
+      rp: options.rp,
+      user: {
+        id: b64ToBuf(jd(options.user.id)),
+        name: jd(options.user.name),
+        displayName: jd(options.user.display_name)
+      },
+      pubKeyCredParams: options.pub_key_cred_params,
+      timeout: options.timeout || 60000,
+      attestation: options.attestation || "none",
+      authenticatorSelection: {
+        authenticatorAttachment: (options.authenticator_selection || {}).authenticator_attach || "platform",
+        userVerification: (options.authenticator_selection || {}).user_verification || "preferred"
+      }
+    };
+
+    setMsg("Waiting for your passkey…", "info");
+    const cred = await navigator.credentials.create({ publicKey });
+    const body = credentialToVerifyBody(cred);
+    body.email = email;
+    const tokens = await api("/api/v1/auth/fido2/bootstrap/verify", body);
+    await completeAuthorize(tokens.access_token);
+  } catch (err) {
+    const m = String(err && err.message || err);
+    setMsg(m, "error");
+  } finally {
+    setBusy(btn, false);
+  }
+});
+</script>
+</body>
+</html>
