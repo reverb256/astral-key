@@ -19,6 +19,8 @@ spec:
       maxUnavailable: 25%
   template:
     metadata:
+      annotations:
+        "astral-key.maplespike.ca/image-build-tag": {{ (index .Values.images "astral-key").tag | quote }}
       labels:
         app: astral-key
     spec:
@@ -27,7 +29,7 @@ spec:
       restartPolicy: Always
       containers:
         - name: astral-key
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}@{{ (index .Values.images "astral-key").digest }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8080
