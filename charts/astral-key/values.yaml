@@ -1,0 +1,40 @@
+# Astral Key chart values — production instance (single-node nexus).
+# Adopted under ArgoCD 2026-09-22 (app: astral-key, media-helm app-of-apps).
+
+replicaCount: 1
+
+image:
+  # Registry-free convention (nexus:5000 decommissioned 2026-09-17):
+  # built on nexus, imported via `docker save | k3s ctr images import`.
+  repository: docker.io/library/astral-key
+  tag: local
+  pullPolicy: Never
+
+# The pod is pinned to the node whose containerd holds the imported image.
+nodeName: nexus
+
+service:
+  port: 8080
+
+# hostPath (rationale in k8s/astral-key-deployment.yaml): Longhorn's admission
+# webhook is unreachable and local-path binding stalls for nodeName-pinned pods.
+persistence:
+  hostPath: /var/lib/astral-key
+
+env:
+  serverHost: "0.0.0.0"
+  serverPort: "8080"
+  databaseUrl: "sqlite:///data/astral-key.db?mode=rwc"
+  fido2RpId: "maplespike.ca"
+  fido2RpName: "MapleSpike"
+  fido2Origins: "https://maplespike.ca,https://quill.maplespike.ca,https://api.maplespike.ca"
+  astralWeb3Domain: "maplespike.ca"
+  rustLog: "info,astral_key=debug"
+  quillDomain: "maplespike.ca"
+
+# Required by src/state.rs (>=32 bytes) — the service refuses to start without it.
+jwtSecret:
+  name: astral-key-jwt
+  key: jwt-secret
+
+resources: {}

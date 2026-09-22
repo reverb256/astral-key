@@ -1,0 +1,6 @@
+apiVersion: v2
+name: astral-key
+description: Astral Key — ultra-minimal Passkey + Web3 (SIWE) auth sidecar for the MapleSpike stack
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
