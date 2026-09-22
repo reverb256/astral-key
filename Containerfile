@@ -1,6 +1,9 @@
 # Astral Key — multi-stage Rust build
 FROM docker.io/rust:slim-bookworm AS builder
 WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      pkg-config libssl-dev cmake clang && \
+    rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN cargo build --release -p astral-key
 
