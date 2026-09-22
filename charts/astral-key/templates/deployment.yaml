@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: astral-key
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: astral-key
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: astral-key
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app: astral-key
+    spec:
+      nodeName: {{ .Values.nodeName }}
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      containers:
+        - name: astral-key
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SERVER_HOST
+              value: {{ .Values.env.serverHost | quote }}
+            - name: SERVER_PORT
+              value: {{ .Values.env.serverPort | quote }}
+            - name: DATABASE_URL
+              value: {{ .Values.env.databaseUrl | quote }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.jwtSecret.name }}
+                  key: {{ .Values.jwtSecret.key }}
+            - name: FIDO2_RP_ID
+              value: {{ .Values.env.fido2RpId | quote }}
+            - name: FIDO2_RP_NAME
+              value: {{ .Values.env.fido2RpName | quote }}
+            - name: FIDO2_ORIGINS
+              value: {{ .Values.env.fido2Origins | quote }}
+            - name: ASTRAL_WEB3_DOMAIN
+              value: {{ .Values.env.astralWeb3Domain | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.env.rustLog | quote }}
+            - name: QUILL_DOMAIN
+              value: {{ .Values.env.quillDomain | quote }}
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            successThreshold: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: data
+          hostPath:
+            path: {{ .Values.persistence.hostPath }}
+            type: DirectoryOrCreate
