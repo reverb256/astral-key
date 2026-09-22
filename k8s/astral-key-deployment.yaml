@@ -41,17 +41,19 @@ spec:
       labels:
         app: astral-key
     spec:
-      # Pin to nexus so the locally-built image (pushed to nexus:5000/astral-key:latest)
-      # is co-located with the node that holds it. Remove nodeName once a registry
-      # pull strategy is in place.
+      # Pin to nexus so the locally-built image (imported into the node's
+      # containerd via `docker save | k3s ctr images import`) is co-located
+      # with the node that holds it. Remove nodeName once a registry pull
+      # strategy is in place.
       nodeName: nexus
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       containers:
         - name: astral-key
-          image: nexus:5000/astral-key:latest
-          # TODO: pin image digest once a registry with digest support is ready (e.g. ghcr.io or Nexus with manifest/digest API)
-          imagePullPolicy: Always
+          image: docker.io/library/astral-key:local
+          # Imported directly into containerd on nexus (the old nexus:5000
+          # registry was decommissioned in the 2026-09-17 rebuild).
+          imagePullPolicy: Never
           ports:
             - containerPort: 8080
               protocol: TCP
@@ -60,13 +62,10 @@ spec:
               value: "0.0.0.0"
             - name: SERVER_PORT
               value: "8080"
+            # SQLite (refactor 1f75144 dropped Postgres; it was never redeployed
+            # in the rebuild). Persistent via the astral-key-data PVC at /data.
             - name: DATABASE_URL
-              value: postgresql://astral:***@astral-key-postgres:5432/astral_key
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: astral-key-jwt
-                  key: secret
+              value: sqlite:///data/astral-key.db?mode=rwc
             # --- FIDO2 / WebAuthn (env names MUST match src/config.rs) ---
             - name: FIDO2_RP_ID
               value: maplespike.ca
@@ -112,18 +111,13 @@ spec:
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           volumeMounts:
-            - name: issuer-key
-              mountPath: /run/secrets/astral-key-issuer
-              readOnly: true
             - name: data
               mountPath: /data
       terminationGracePeriodSeconds: 30
       volumes:
-        - name: issuer-key
-          secret:
-            secretName: astral-key-issuer
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: astral-key-data
 ---
 apiVersion: v1
 kind: Service
@@ -141,3 +135,15 @@ spec:
       targetPort: 8080
       protocol: TCP
   type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: astral-key-data
+  namespace: astral-key
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

@@ -7,7 +7,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs && \
     cargo fetch && \
     rm -rf src
 COPY . .
-RUN cargo build --release
+RUN cargo build --release -p astral-key
 
 FROM docker.io/debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
