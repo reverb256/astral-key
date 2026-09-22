@@ -1,149 +1,24 @@
-# Astral Key — declarative Kubernetes manifest (source of truth)
+# DEPRECATED — superseded by the Helm chart (2026-09-22).
 #
-# WHY THIS FILE EXISTS:
-#   The astral-key Deployment was previously applied IMPERATIVELY (kubectl set env /
-#   kubectl apply of a local file) with image `localhost/astral-key:latest`. That created
-#   config drift: no repo owned it, env-var NAMES did not match what the Rust binary
-#   actually reads (see config.rs), and values were pinned to `maplespike.lan`.
+# This raw manifest was applied imperatively via `kubectl apply -f`. The
+# service is now managed declaratively by ArgoCD:
+#   - chart:   charts/astral-key/  (this repo)
+#   - app:     astral-key (argocd ns, via media-helm app-of-apps,
+#              helm/apps/astral-key.yaml in reverb256/media-k8s)
+#   - deploy key: astral-key-repo (read-only)
 #
-#   This manifest is the long-term fix (Option B): astral-key owns its own deploy
-#   spec, in its own repo, next to the Rust source it builds. A quill change can
-#   no longer silently re-apply or shadow this object.
+# The rationale formerly documented here (env names matching src/config.rs,
+# hostPath /var/lib/astral-key instead of a PVC, JWT_SECRET requirement)
+# now lives in charts/astral-key/values.yaml and the chart templates.
 #
-# CRITICAL — env-var names MUST match src/config.rs EXACTLY:
-#   Rust reads: FIDO2_RP_ID, FIDO2_RP_NAME, FIDO2_ORIGINS (plural!),
-#   ASTRAL_WEB3_DOMAIN (added below; the old WEB3__SIWE_DOMAIN is NOT read
-#   by Rust and is dead config — do not use it).
-#
-# All hostnames derive from QUILL_DOMAIN so they stay in lockstep with the
-#   quill-api deployment (which also exports QUILL_DOMAIN=maplespike.ca).
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: astral-key
-  namespace: astral-key
-  labels:
-    app: astral-key
-    managed-by: astral-key-repo
-spec:
-  replicas: 1
-  revisionHistoryLimit: 10
-  selector:
-    matchLabels:
-      app: astral-key
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-  template:
-    metadata:
-      labels:
-        app: astral-key
-    spec:
-      # Pin to nexus so the locally-built image (imported into the node's
-      # containerd via `docker save | k3s ctr images import`) is co-located
-      # with the node that holds it. Remove nodeName once a registry pull
-      # strategy is in place.
-      nodeName: nexus
-      dnsPolicy: ClusterFirst
-      restartPolicy: Always
-      containers:
-        - name: astral-key
-          image: docker.io/library/astral-key:local
-          # Imported directly into containerd on nexus (the old nexus:5000
-          # registry was decommissioned in the 2026-09-17 rebuild).
-          imagePullPolicy: Never
-          ports:
-            - containerPort: 8080
-              protocol: TCP
-          env:
-            - name: SERVER_HOST
-              value: "0.0.0.0"
-            - name: SERVER_PORT
-              value: "8080"
-            # SQLite (refactor 1f75144 dropped Postgres; it was never redeployed
-            # in the rebuild). Persistent via hostPath /var/lib/astral-key on nexus.
-            - name: DATABASE_URL
-              value: sqlite:///data/astral-key.db?mode=rwc
-            # Required by src/state.rs (>=32 bytes) — the service refuses to
-            # start without it. Value lives in the in-cluster secret (sops
-            # follow-up tracked in the repo backlog).
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: astral-key-jwt
-                  key: jwt-secret
-            # --- FIDO2 / WebAuthn (env names MUST match src/config.rs) ---
-            - name: FIDO2_RP_ID
-              value: maplespike.ca
-            - name: FIDO2_RP_NAME
-              value: MapleSpike
-            # NOTE: plural ORIGINS (not RP_ORIGIN). Comma-separated list of
-            # allowed origins. Rust default was http://localhost:8080 — that is why
-            # passkeys rejected every real browser origin.
-            - name: FIDO2_ORIGINS
-              value: "https://maplespike.ca,https://quill.maplespike.ca,https://api.maplespike.ca"
-            # --- Web3 / SIWE ---
-            # ASTRAL_WEB3_DOMAIN is read by src/auth/web3/nonce.rs (added in the
-            # same change that introduces this manifest). The legacy WEB3__SIWE_DOMAIN
-            # env is NOT consumed by Rust and must not be used.
-            - name: ASTRAL_WEB3_DOMAIN
-              value: maplespike.ca
-            - name: RUST_LOG
-              value: info,astral_key=debug
-            # Single-source the hostname so quill-api + astral-key never drift.
-            - name: QUILL_DOMAIN
-              value: maplespike.ca
-          livenessProbe:
-            failureThreshold: 3
-            httpGet:
-              path: /health
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 5
-            periodSeconds: 30
-            successThreshold: 1
-            timeoutSeconds: 1
-          readinessProbe:
-            failureThreshold: 3
-            httpGet:
-              path: /health
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 3
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 1
-          resources: {}
-          terminationMessagePath: /dev/termination-log
-          terminationMessagePolicy: File
-          volumeMounts:
-            - name: data
-              mountPath: /data
-      terminationGracePeriodSeconds: 30
-      volumes:
-        # hostPath (pod is pinned to nexus): the Longhorn admission webhook is
-        # currently unreachable and local-path PVC binding stalls for
-        # nodeName-pinned pods (no scheduler → no selected-node annotation).
-        - name: data
-          hostPath:
-            path: /var/lib/astral-key
-            type: DirectoryOrCreate
----
+# Do NOT kubectl apply this file. To change the service, edit the chart
+# values and commit — ArgoCD syncs automatically.
 apiVersion: v1
-kind: Service
+kind: ConfigMap
 metadata:
-  name: astral-key
+  name: astral-key-deployment-deprecated
   namespace: astral-key
   labels:
-    app: astral-key
-spec:
-  selector:
-    app: astral-key
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8080
-      protocol: TCP
-  type: ClusterIP
+    deprecated: "true"
+data:
+  note: "Superseded by charts/astral-key (ArgoCD app: astral-key). See file header."
