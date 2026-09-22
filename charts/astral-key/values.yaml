@@ -7,8 +7,13 @@ image:
   # Registry-free convention (nexus:5000 decommissioned 2026-09-17):
   # built on nexus, imported via `docker save | k3s ctr images import`.
   repository: docker.io/library/astral-key
-  tag: local
+  tag: ""
   pullPolicy: Never
+
+images:
+  astral-key:
+    digest: "sha256:5eb69f5d76620a98184342841677fda4a3fdd302e339feecc3ccd5b22c7bcf9b"
+    tag: "2026-09-22-sha.5eb69f5d7662"
 
 # The pod is pinned to the node whose containerd holds the imported image.
 nodeName: nexus
