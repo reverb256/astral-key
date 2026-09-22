@@ -63,9 +63,17 @@ spec:
             - name: SERVER_PORT
               value: "8080"
             # SQLite (refactor 1f75144 dropped Postgres; it was never redeployed
-            # in the rebuild). Persistent via the astral-key-data PVC at /data.
+            # in the rebuild). Persistent via hostPath /var/lib/astral-key on nexus.
             - name: DATABASE_URL
               value: sqlite:///data/astral-key.db?mode=rwc
+            # Required by src/state.rs (>=32 bytes) — the service refuses to
+            # start without it. Value lives in the in-cluster secret (sops
+            # follow-up tracked in the repo backlog).
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: astral-key-jwt
+                  key: jwt-secret
             # --- FIDO2 / WebAuthn (env names MUST match src/config.rs) ---
             - name: FIDO2_RP_ID
               value: maplespike.ca
@@ -115,9 +123,13 @@ spec:
               mountPath: /data
       terminationGracePeriodSeconds: 30
       volumes:
+        # hostPath (pod is pinned to nexus): the Longhorn admission webhook is
+        # currently unreachable and local-path PVC binding stalls for
+        # nodeName-pinned pods (no scheduler → no selected-node annotation).
         - name: data
-          persistentVolumeClaim:
-            claimName: astral-key-data
+          hostPath:
+            path: /var/lib/astral-key
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -135,15 +147,3 @@ spec:
       targetPort: 8080
       protocol: TCP
   type: ClusterIP
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: astral-key-data
-  namespace: astral-key
-spec:
-  accessModes: ["ReadWriteOnce"]
-  storageClassName: local-path
-  resources:
-    requests:
-      storage: 1Gi
