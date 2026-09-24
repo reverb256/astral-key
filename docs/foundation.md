@@ -202,7 +202,7 @@ hybrid too.
 This is a **live homelab project** running on a 4-node NixOS/K3s cluster
 at `reverb256` (forge, nexus, sentry, krash3). The MIS and bridges run as
 k8s pods in the `orchestration` namespace. The auth sidecar is deployed via
-`k8s/astral-key-deployment.yaml`. Continuous deployment is manual
+`charts/astral-key`. Deployment is continuous via ArgoCD (app `astral-key`)
 (`cargo build → docker save → ctr import`); CI/CD is the next gap.
 
 The Mosaic Identity Foundation is what the code does. **What to call it**
