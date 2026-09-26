@@ -29,9 +29,6 @@ toml = "0.8"
 
 # Database (SQLite)
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "migrate"] }
-
-# Web3
-ethers = { version = "2.0", features = ["rustls"] }
 siwe = "0.6"
 
 # FIDO2/WebAuthn
@@ -92,6 +89,7 @@ pqcrypto-traits = "0.3"
 
 # MCP server (optional)
 rmcp = { version = "2", features = ["transport-io", "schemars", "macros"], optional = true }
+alloy-primitives = { version = "0.8.0", features = ["k256"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

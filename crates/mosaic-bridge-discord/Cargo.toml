@@ -11,7 +11,7 @@ rust-version = "1.75"
 tokio = { version = "1.35", features = ["full", "tracing"] }
 
 # WebSocket (Discord Gateway)
-tokio-tungstenite = { version = "0.21", features = ["__rustls-tls"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 
 # Web framework (HTTP server for /health and /send)
 axum = { version = "0.7", features = ["macros"] }
