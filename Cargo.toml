@@ -91,7 +91,7 @@ pqcrypto-mldsa = "0.1"
 pqcrypto-traits = "0.3"
 
 # MCP server (optional)
-rmcp = { version = "2", features = ["transport-io", "schemars"], optional = true }
+rmcp = { version = "2", features = ["transport-io", "schemars", "macros"], optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

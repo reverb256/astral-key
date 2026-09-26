@@ -8,7 +8,10 @@
 
 use std::sync::OnceLock;
 
-use rmcp::{model::*, tool, transport::stdio, RmcpError, ServerHandler, ServiceExt};
+use rmcp::{
+    handler::server::wrapper::Parameters, model::*, schemars, tool, tool_handler, tool_router,
+    transport::stdio, ServerHandler, ServiceExt,
+};
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -29,7 +32,6 @@ struct McpAppState {
     db: DbPool,
     jit_issuer: Option<JitIssuer>,
     jit_verifier: Option<JitVerifier>,
-    issuer_id: String,
 }
 
 fn app_state() -> &'static McpAppState {
@@ -48,17 +50,67 @@ pub struct AstralKeyMcp;
 // Tool definitions
 // ---------------------------------------------------------------------------
 
+/// Arguments for `astral_mint_token`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct MintTokenArgs {
+    /// Scopes to grant (e.g. "keys:read").
+    scopes: Vec<String>,
+    /// Audience the token is minted for.
+    audience: String,
+    /// Token lifetime in seconds.
+    ttl_seconds: u64,
+}
+
+/// Arguments for `astral_verify_token`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct VerifyTokenArgs {
+    /// The signed capability token to verify.
+    token: String,
+}
+
+/// Arguments for `astral_create_key`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct CreateKeyArgs {
+    /// Owner user ID.
+    user_id: String,
+    /// Human-readable key name.
+    name: String,
+    /// Scopes to grant.
+    scopes: Vec<String>,
+    /// Environment ("live" or "test").
+    environment: String,
+    /// Optional expiry, in seconds from now.
+    expires_in_seconds: Option<i64>,
+}
+
+/// Arguments for `astral_list_keys`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ListKeysArgs {
+    /// Owner user ID.
+    user_id: String,
+}
+
+/// Arguments for `astral_revoke_key`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RevokeKeyArgs {
+    /// Owner user ID.
+    user_id: String,
+    /// Key ID to revoke.
+    key_id: String,
+}
+
+#[tool_router]
 impl AstralKeyMcp {
     /// Health check — verifies the service is running.
     #[tool(description = "Check whether the astral-key service is healthy")]
-    async fn astral_health() -> Result<CallToolResult, RmcpError> {
+    async fn astral_health(&self) -> Result<CallToolResult, ErrorData> {
         let healthy = app_state().db.health_check().await.unwrap_or(false);
         let content = if healthy {
-            Content::json(json!({ "status": "healthy" }))
-                .map_err(|e| RmcpError::internal_error(format!("serialisation: {e}"), None))?
+            ContentBlock::json(json!({ "status": "healthy" }))
+                .map_err(|e| ErrorData::internal_error(format!("serialisation: {e}"), None))?
         } else {
-            Content::json(json!({ "status": "unhealthy" }))
-                .map_err(|e| RmcpError::internal_error(format!("serialisation: {e}"), None))?
+            ContentBlock::json(json!({ "status": "unhealthy" }))
+                .map_err(|e| ErrorData::internal_error(format!("serialisation: {e}"), None))?
         };
         Ok(CallToolResult::success(vec![content]))
     }
@@ -66,23 +118,27 @@ impl AstralKeyMcp {
     /// Mint a ZK JIT capability token.
     #[tool(description = "Mint a new ZK JIT capability token with the given scopes and TTL")]
     async fn astral_mint_token(
-        #[tool(param)] scopes: Vec<String>,
-        #[tool(param)] audience: String,
-        #[tool(param)] ttl_seconds: u64,
-    ) -> Result<CallToolResult, RmcpError> {
+        &self,
+        args: Parameters<MintTokenArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let MintTokenArgs {
+            scopes,
+            audience,
+            ttl_seconds,
+        } = args.0;
         let state = app_state();
         let issuer = state
             .jit_issuer
             .as_ref()
-            .ok_or_else(|| RmcpError::internal_error("JIT issuer not configured", None))?;
+            .ok_or_else(|| ErrorData::internal_error("JIT issuer not configured", None))?;
 
         let signed: SignedToken = issuer.mint(scopes, &audience, ttl_seconds);
-        let content = Content::json(json!({
+        let content = ContentBlock::json(json!({
             "token": signed.token,
             "expires_at": signed.expires_at,
             "token_id": signed.token_id,
         }))
-        .map_err(|e| RmcpError::internal_error(format!("serialisation: {e}"), None))?;
+        .map_err(|e| ErrorData::internal_error(format!("serialisation: {e}"), None))?;
 
         Ok(CallToolResult::success(vec![content]))
     }
@@ -90,17 +146,19 @@ impl AstralKeyMcp {
     /// Verify a capability token.
     #[tool(description = "Verify a ZK JIT capability token and return its claims")]
     async fn astral_verify_token(
-        #[tool(param)] token: String,
-    ) -> Result<CallToolResult, RmcpError> {
+        &self,
+        args: Parameters<VerifyTokenArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let VerifyTokenArgs { token } = args.0;
         let state = app_state();
         let verifier = state
             .jit_verifier
             .as_ref()
-            .ok_or_else(|| RmcpError::internal_error("JIT verifier not configured", None))?;
+            .ok_or_else(|| ErrorData::internal_error("JIT verifier not configured", None))?;
 
         match verifier.verify(&token) {
             Ok(claims) => {
-                let content = Content::json(json!({
+                let content = ContentBlock::json(json!({
                     "valid": true,
                     "subject": claims.subject,
                     "issuer": claims.issuer,
@@ -110,15 +168,15 @@ impl AstralKeyMcp {
                     "expires_at": claims.expires_at,
                     "epoch": claims.epoch,
                 }))
-                .map_err(|e| RmcpError::internal_error(format!("serialisation: {e}"), None))?;
+                .map_err(|e| ErrorData::internal_error(format!("serialisation: {e}"), None))?;
                 Ok(CallToolResult::success(vec![content]))
             }
             Err(e) => {
-                let content = Content::json(json!({
+                let content = ContentBlock::json(json!({
                     "valid": false,
                     "error": e.to_string(),
                 }))
-                .map_err(|e| RmcpError::internal_error(format!("serialisation: {e}"), None))?;
+                .map_err(|e| ErrorData::internal_error(format!("serialisation: {e}"), None))?;
                 Ok(CallToolResult::success(vec![content]))
             }
         }
@@ -127,22 +185,26 @@ impl AstralKeyMcp {
     /// Create a new API key for a user.
     #[tool(description = "Create a new API key for the given user ID")]
     async fn astral_create_key(
-        #[tool(param)] user_id: String,
-        #[tool(param)] name: String,
-        #[tool(param)] scopes: Vec<String>,
-        #[tool(param)] environment: String,
-        #[tool(param)] expires_in_seconds: Option<i64>,
-    ) -> Result<CallToolResult, RmcpError> {
+        &self,
+        args: Parameters<CreateKeyArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let CreateKeyArgs {
+            user_id,
+            name,
+            scopes,
+            environment,
+            expires_in_seconds,
+        } = args.0;
         let db = app_state().db.inner();
         let uid = Uuid::parse_str(&user_id)
-            .map_err(|e| RmcpError::invalid_params(format!("Invalid user_id: {e}")))?;
+            .map_err(|e| ErrorData::invalid_params(format!("Invalid user_id: {e}"), None))?;
 
         let expires_in = expires_in_seconds.map(chrono::Duration::seconds);
         let scope_refs: Vec<&str> = scopes.iter().map(|s| s.as_str()).collect();
 
         match KeyService::create_key(db, uid, &name, &scope_refs, &environment, expires_in).await {
             Ok((summary, raw_key)) => {
-                let content = Content::json(json!({
+                let content = ContentBlock::json(json!({
                     "id": summary.id,
                     "api_key": raw_key,
                     "key_prefix": summary.key_prefix,
@@ -150,11 +212,11 @@ impl AstralKeyMcp {
                     "scopes": summary.scopes,
                     "environment": summary.environment,
                 }))
-                .map_err(|e| RmcpError::internal_error(format!("serialisation: {e}"), None))?;
+                .map_err(|e| ErrorData::internal_error(format!("serialisation: {e}"), None))?;
                 Ok(CallToolResult::success(vec![content]))
             }
             Err(e) => {
-                let content = Content::text(format!("Error: {e}"));
+                let content = ContentBlock::text(format!("Error: {e}"));
                 Ok(CallToolResult::success(vec![content]))
             }
         }
@@ -162,19 +224,23 @@ impl AstralKeyMcp {
 
     /// List API keys for a user.
     #[tool(description = "List all API keys (summaries) for the given user ID")]
-    async fn astral_list_keys(#[tool(param)] user_id: String) -> Result<CallToolResult, RmcpError> {
+    async fn astral_list_keys(
+        &self,
+        args: Parameters<ListKeysArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let ListKeysArgs { user_id } = args.0;
         let db = app_state().db.inner();
         let uid = Uuid::parse_str(&user_id)
-            .map_err(|e| RmcpError::invalid_params(format!("Invalid user_id: {e}")))?;
+            .map_err(|e| ErrorData::invalid_params(format!("Invalid user_id: {e}"), None))?;
 
         match KeyService::list_keys(db, uid).await {
             Ok(keys) => {
-                let content = Content::json(json!({ "keys": keys }))
-                    .map_err(|e| RmcpError::internal_error(format!("serialisation: {e}"), None))?;
+                let content = ContentBlock::json(json!({ "keys": keys }))
+                    .map_err(|e| ErrorData::internal_error(format!("serialisation: {e}"), None))?;
                 Ok(CallToolResult::success(vec![content]))
             }
             Err(e) => {
-                let content = Content::text(format!("Error: {e}"));
+                let content = ContentBlock::text(format!("Error: {e}"));
                 Ok(CallToolResult::success(vec![content]))
             }
         }
@@ -183,22 +249,23 @@ impl AstralKeyMcp {
     /// Revoke an API key.
     #[tool(description = "Revoke an API key by ID for a given user")]
     async fn astral_revoke_key(
-        #[tool(param)] user_id: String,
-        #[tool(param)] key_id: String,
-    ) -> Result<CallToolResult, RmcpError> {
+        &self,
+        args: Parameters<RevokeKeyArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let RevokeKeyArgs { user_id, key_id } = args.0;
         let db = app_state().db.inner();
         let uid = Uuid::parse_str(&user_id)
-            .map_err(|e| RmcpError::invalid_params(format!("Invalid user_id: {e}")))?;
+            .map_err(|e| ErrorData::invalid_params(format!("Invalid user_id: {e}"), None))?;
         let kid = Uuid::parse_str(&key_id)
-            .map_err(|e| RmcpError::invalid_params(format!("Invalid key_id: {e}")))?;
+            .map_err(|e| ErrorData::invalid_params(format!("Invalid key_id: {e}"), None))?;
 
         match KeyService::revoke_key(db, kid, uid).await {
             Ok(()) => {
-                let content = Content::text("API key revoked successfully");
+                let content = ContentBlock::text("API key revoked successfully");
                 Ok(CallToolResult::success(vec![content]))
             }
             Err(e) => {
-                let content = Content::text(format!("Error: {e}"));
+                let content = ContentBlock::text(format!("Error: {e}"));
                 Ok(CallToolResult::success(vec![content]))
             }
         }
@@ -211,24 +278,19 @@ impl AstralKeyMcp {
 
 /// Required by the `#[tool]` macro machinery — provides server metadata and
 /// initialisation.
+#[tool_handler]
 impl ServerHandler for AstralKeyMcp {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::V_2025_06_18,
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation::from_build_env(),
-            instructions: Some(
-                "astral-key authentication service — manage API keys and capability tokens."
-                    .to_string(),
-            ),
-        }
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
+            "astral-key authentication service — manage API keys and capability tokens.",
+        )
     }
 
     async fn initialize(
         &self,
-        _request: InitializeRequestParam,
+        _request: InitializeRequestParams,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
-    ) -> Result<InitializeResult, RmcpError> {
+    ) -> Result<InitializeResult, ErrorData> {
         Ok(self.get_info())
     }
 }
@@ -280,15 +342,11 @@ pub async fn run_mcp_server() -> anyhow::Result<()> {
         verifier
     });
 
-    let issuer_id =
-        std::env::var("JIT_ISSUER_ID").unwrap_or_else(|_| "ak:mcp:issuer:01".to_string());
-
     MCP_APP_STATE
         .set(McpAppState {
             db,
             jit_issuer,
             jit_verifier,
-            issuer_id,
         })
         .map_err(|_| anyhow::anyhow!("McpAppState already initialised"))?;
 

@@ -28,6 +28,12 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    // `astral-key mcp` — run the MCP stdio server (feature "mcp") instead of HTTP.
+    #[cfg(feature = "mcp")]
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        return crate::auth::mcp::run_mcp_server().await;
+    }
+
     info!("Starting Astral Key v{}", env!("CARGO_PKG_VERSION"));
 
     // Load configuration

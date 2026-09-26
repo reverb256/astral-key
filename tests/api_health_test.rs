@@ -68,7 +68,7 @@ fn test_app(state: AppState) -> Router {
 #[tokio::test]
 async fn test_health_endpoint() {
     let state = test_state().await;
-    let mut app = test_app(state);
+    let app = test_app(state);
 
     let response = app
         .oneshot(
@@ -90,7 +90,7 @@ async fn test_health_endpoint() {
 #[tokio::test]
 async fn test_ready_endpoint() {
     let state = test_state().await;
-    let mut app = test_app(state);
+    let app = test_app(state);
 
     let response = app
         .oneshot(
@@ -114,7 +114,7 @@ async fn test_ready_endpoint() {
 #[tokio::test]
 async fn test_web3_chains_endpoint() {
     let state = test_state().await;
-    let mut app = test_app(state);
+    let app = test_app(state);
 
     let response = app
         .oneshot(
@@ -139,7 +139,7 @@ async fn test_web3_chains_endpoint() {
 #[tokio::test]
 async fn test_web3_nonce_endpoint() {
     let state = test_state().await;
-    let mut app = test_app(state);
+    let app = test_app(state);
 
     let response = app
         .oneshot(
@@ -167,7 +167,7 @@ async fn test_web3_nonce_endpoint() {
 #[tokio::test]
 async fn test_unknown_route_returns_404() {
     let state = test_state().await;
-    let mut app = test_app(state);
+    let app = test_app(state);
 
     let response = app
         .oneshot(
@@ -188,7 +188,7 @@ async fn test_rate_limit_does_not_block_normal_traffic() {
     let app = test_app(state);
 
     for i in 0..5 {
-        let mut app = app.clone();
+        let app = app.clone();
         let response = app
             .oneshot(
                 Request::builder()

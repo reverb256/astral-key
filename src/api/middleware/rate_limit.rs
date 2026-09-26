@@ -110,9 +110,7 @@ static RATE_LIMITER: OnceLock<RateLimiter> = OnceLock::new();
 /// route-setup function).  Safe to call multiple times — subsequent calls
 /// are silently ignored (the first-set values are kept).
 pub fn init(max_rps: u32, max_burst: u32) {
-    RATE_LIMITER
-        .set(RateLimiter::new(max_rps, max_burst))
-        .ok();
+    RATE_LIMITER.set(RateLimiter::new(max_rps, max_burst)).ok();
 }
 
 fn rate_limiter() -> &'static RateLimiter {
