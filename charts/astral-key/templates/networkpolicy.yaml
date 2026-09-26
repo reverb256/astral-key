@@ -64,10 +64,15 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # maplespike pod IPs cover same-node flows; the node subnet covers
+    # cross-node ClusterIP flows (Calico matches those pre-DNAT where the
+    # source appears SNATed to the node IP).
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: maplespike
+        - ipBlock:
+            cidr: 10.1.1.0/24
       ports:
         - protocol: TCP
           port: 8080
