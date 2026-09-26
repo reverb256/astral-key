@@ -136,11 +136,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The job is a no-op until Docker Hub credentials exist in repo secrets;
+      # previously it failed every run on the login step.
+      - name: Check Docker Hub credentials
+        id: creds
+        run: |
+          if [ -n "${{ secrets.DOCKER_USERNAME }}" ] && [ -n "${{ secrets.DOCKER_PASSWORD }}" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docker Hub credentials not configured; skipping image build/push"
+          fi
+
       - name: Set up Docker Buildx
+        if: steps.creds.outputs.have == 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.creds.outputs.have == 'true'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -148,6 +161,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
+        if: steps.creds.outputs.have == 'true'
         uses: docker/metadata-action@v6
         with:
           images: astral-key/astral-key
@@ -159,6 +173,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
+        if: steps.creds.outputs.have == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
