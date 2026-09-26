@@ -184,12 +184,9 @@ pub async fn github_link(
     let pool = state.db.inner();
 
     // Check if this GitHub account is already linked to another user
-    if let Some(existing) = OAuthAccount::get_by_provider_and_user_id(
-        pool,
-        "github",
-        &github_user.id.to_string(),
-    )
-    .await?
+    if let Some(existing) =
+        OAuthAccount::get_by_provider_and_user_id(pool, "github", &github_user.id.to_string())
+            .await?
     {
         if existing.user_id != auth_user.user_id {
             return Err(AuthError::Conflict(
@@ -255,7 +252,6 @@ struct GitHubUser {
     id: u64,
     login: Option<String>,
     name: Option<String>,
-    email: Option<String>,
     avatar_url: Option<String>,
 }
 
@@ -315,7 +311,10 @@ async fn fetch_github_profile(access_token: &str) -> Result<(GitHubUser, Option<
     let emails = match fetch_github_emails(access_token).await {
         Ok(emails) => Some(emails),
         Err(e) => {
-            tracing::warn!("Failed to fetch GitHub emails, continuing without email: {}", e);
+            tracing::warn!(
+                "Failed to fetch GitHub emails, continuing without email: {}",
+                e
+            );
             None
         }
     };
@@ -352,9 +351,10 @@ async fn fetch_github_user(access_token: &str) -> Result<GitHubUser> {
         )));
     }
 
-    let user: GitHubUser = response.json().await.map_err(|e| {
-        AuthError::Internal(format!("Failed to parse GitHub user response: {}", e))
-    })?;
+    let user: GitHubUser = response
+        .json()
+        .await
+        .map_err(|e| AuthError::Internal(format!("Failed to parse GitHub user response: {}", e)))?;
 
     Ok(user)
 }

@@ -20,7 +20,7 @@ mod tests {
 
     #[test]
     fn test_create_cors_layer() {
-        let cors = create_cors_layer();
+        let _cors = create_cors_layer();
         // Test that the layer is created
         // Actual testing would require sending HTTP requests
     }

@@ -40,6 +40,8 @@ pub fn routes(router: Router<AppState>, state: AppState) -> Router {
         .route("/auth/keys", get(handlers::keys::list_keys))
         .route("/auth/keys/:id", delete(handlers::keys::delete_key))
         .route("/auth/keys/:id/revoke", post(handlers::keys::revoke_key))
+        // Link a GitHub account to the authenticated user
+        .route("/auth/oauth/github/link", get(handlers::oauth::github_link))
         // Session management (require authentication)
         .route("/auth/sessions", get(handlers::session::list_sessions))
         .route(

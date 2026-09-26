@@ -40,6 +40,8 @@ pub struct OAuthAccount {
 
 impl OAuthAccount {
     /// Create a new OAuth account link.
+    // Column-mirroring insert signature; matches the table shape 1:1.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         pool: &SqlitePool,
         user_id: Uuid,
@@ -128,7 +130,7 @@ impl OAuthAccount {
                 .fetch_all(pool)
                 .await?;
 
-        rows.into_iter().map(|r| Self::from_row(r)).collect()
+        rows.into_iter().map(Self::from_row).collect()
     }
 
     /// Delete this OAuth account link.

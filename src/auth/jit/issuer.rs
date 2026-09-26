@@ -77,6 +77,9 @@ impl JitIssuer {
     /// After calling this, [`mint()`](Self::mint) emits 4-part hybrid tokens.
     /// Returns `Err` if the hex is invalid or the key length doesn't match
     /// ML-DSA-65's secret-key size.
+    // Public API for enabling hybrid PQ signing; the config path that calls
+    // it is not wired yet (kept intentionally, doc-referenced by `mint`).
+    #[allow(dead_code)]
     pub fn with_mldsa_key(mut self, sk_hex: &str) -> Result<Self, String> {
         let bytes = hex::decode(sk_hex).map_err(|e| format!("Invalid ML-DSA key hex: {}", e))?;
         // ML-DSA-65 secret key is 4032 bytes (per FIPS 204 / PQClean). We don't
@@ -176,7 +179,6 @@ impl JitIssuer {
 mod tests {
     use super::*;
     use ed25519_dalek::Verifier;
-    use ed25519_dalek::VerifyingKey;
 
     /// Generate a deterministic test key (32 bytes of 0xab)
     fn test_key_hex() -> String {
