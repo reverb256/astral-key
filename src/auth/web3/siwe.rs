@@ -1,6 +1,6 @@
 //! Astral Key - SIWE (Sign-In with Ethereum) verification
 
-use ethers::core::types::{Address, U256};
+use alloy_primitives::{eip191_hash_message, Address, PrimitiveSignature, B256};
 use std::str::FromStr;
 
 use crate::error::{AuthError, Result};
@@ -208,19 +208,28 @@ fn recover_address_from_signature(message: &str, signature: &str) -> Result<Addr
         ));
     }
 
-    // Split signature into r, s, v
-    let r = U256::from_big_endian(&sig_bytes[0..32]);
-    let s = U256::from_big_endian(&sig_bytes[32..64]);
-    let v = sig_bytes[64] as u64;
+    // Split signature into r, s, v (EIP-2098 not supported here; 65-byte only)
+    let r = B256::from_slice(&sig_bytes[0..32]);
+    let s = B256::from_slice(&sig_bytes[32..64]);
+    let v = sig_bytes[64];
+    let parity = match v {
+        0 | 27 => false,
+        1 | 28 => true,
+        other => {
+            return Err(AuthError::BadRequest(format!(
+                "Invalid signature v byte: {other}"
+            )))
+        }
+    };
 
-    // Calculate Ethereum signed message hash
-    let message_hash = ethers::core::utils::hash_message(message);
-
-    // Recover address
-    let sig = ethers::core::types::Signature { r, s, v };
-    let address = sig.recover(message_hash).map_err(|_| {
-        AuthError::Unauthorized("Failed to recover address from signature".to_string())
-    })?;
+    // Calculate Ethereum signed message hash and recover the signer
+    let message_hash = eip191_hash_message(message);
+    let sig = PrimitiveSignature::from_scalars_and_parity(r, s, parity);
+    let address = sig
+        .recover_address_from_prehash(&message_hash)
+        .map_err(|_| {
+            AuthError::Unauthorized("Failed to recover address from signature".to_string())
+        })?;
 
     Ok(address)
 }

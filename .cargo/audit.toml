@@ -1,0 +1,11 @@
+# cargo-audit configuration.
+#
+# RUSTSEC-2023-0071 (rsa: "Marvin Attack", medium, NO FIXED UPGRADE AVAILABLE):
+# pulled in transitively by `jsonwebtoken`'s rust_crypto backend. This service
+# only issues and verifies EdDSA (OIDC/JIT) and HS256 (API tokens) JWTs — no
+# RSA-family algorithm is used or accepted anywhere (verified: every
+# Validation::new / header alg is EdDSA or HS256), so the vulnerable RSA
+# decryption path is unreachable. Re-evaluate when jsonwebtoken drops the
+# `rsa` dependency (or upstream ships a fix).
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]
