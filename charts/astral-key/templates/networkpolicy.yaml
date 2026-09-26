@@ -1,0 +1,96 @@
+{{/*
+  astral-key — network isolation.
+
+  astral-key is the auth sidecar behind quill (passkey / Web3 SIWE / JWT).
+  A breach of quill must not turn astral-key into a pivot either, and a
+  breach of astral-key itself must not reach the nodes, the LAN, or the
+  tailnet.
+
+  Baseline: default-deny ingress+egress. Allows only:
+    - DNS (CoreDNS)
+    - ingress from the maplespike namespace (quill-api is the caller)
+    - public-internet egress, excluding every private range (RFC1918,
+      tailnet 100.64/10, link-local, loopback) — RPC endpoints for wallet
+      verification are public; cluster nodes, kubelets and host services
+      are not reachable.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: astral-key-default-deny
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: astral-key
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: astral-key-allow-dns
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: astral-key
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: astral-key-allow-ingress-quill
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: astral-key
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: maplespike
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: astral-key-allow-internet-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: astral-key
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
