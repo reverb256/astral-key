@@ -36,12 +36,17 @@ astral-key/
 │   │   └── error.rs           # Error types
 │   └── migrations/001_init.sql
 ├── crates/mosaic-bridge-haven/  # Haven adapter (Socket.IO) — see below
-├── Cargo.toml                 # Workspace: root + crates/mosaic-identity
-├── Containerfile              # Astral Key container build
-├── Dockerfile.mosaic-identity # MIS container build
-├── Dockerfile.bridges         # Bridge container build
-└── bridges-entrypoint.sh      # Bridge type dispatcher (BRIDGE_TYPE env)
+├── Cargo.toml                 # Workspace: root + 10 crates under crates/
+├── Containerfile              # Astral Key SERVICE image <- what the chart deploys
+├── Dockerfile                 # mosaic-identity sidecar (port 8081) <- different service
+├── docker/Dockerfile.<proto>  # Per-bridge images (atproto, buzz, matrix, ...)
+└── scripts/ensure-image.sh    # Registry-free image recovery
 ```
+
+**Two build files, two services.** Always pass `-f Containerfile` for the
+astral-key service; the bare `Dockerfile` builds the mosaic-identity sidecar.
+CI omitted `-f` for a long time and stayed green while producing the wrong
+binary, so this is a known, previously-shipped defect — not a style preference.
 
 ## Mosaic Identity Service (MIS)
 
@@ -135,23 +140,44 @@ Full table with defaults: `docs/deployment.md` → Environment Variables.
 
 ## Deploy
 
-MIS and bridges deploy as k8s pods in the `orchestration` namespace.
-The registry is at `nexus:5000` (local, insecure — accessible from within
-cluster). Images are loaded directly into containerd via `docker save | ctr import`.
+**Astral Key is deployed by ArgoCD from `charts/astral-key/` in this repo.**
+There is no registry, and `nexus:5000` was decommissioned 2026-09-17 — do not
+resurrect it. The image is built on **nexus** and imported into that node's
+containerd store with `pullPolicy: Never` and a digest pin.
 
 ```bash
-# Build and load MIS image
-docker build -t nexus:5000/mosaic-identity:v0.1.0 -f Dockerfile.mosaic-identity .
-docker save nexus:5000/mosaic-identity:v0.1.0 | sudo ctr -n k8s.io images import -
+# Build the SERVICE image (Containerfile, not Dockerfile)
+sudo -n docker build -f Containerfile -t docker.io/library/astral-key:local .
 
-# Build and load bridge image
-docker build -t nexus:5000/mosaic-bridges:v0.1.0 -f Dockerfile.bridges .
-docker save nexus:5000/mosaic-bridges:v0.1.0 | sudo ctr -n k8s.io images import -
+# Import, then create the @sha256 NAME (a tag alone will not resolve)
+sudo -n docker save docker.io/library/astral-key:local | sudo -n k3s ctr images import -
+sudo -n k3s ctr images tag --force docker.io/library/astral-key:local \
+  docker.io/library/astral-key@sha256:<digest>
 
-# Apply manifests
-kubectl apply -f /etc/nixos/k8s/mosaic-identity/
-kubectl apply -f /etc/nixos/k8s/mosaic-bridges/
+# Then update images.astral-key.digest in charts/astral-key/values.yaml and push.
+# ArgoCD is automated + selfHeal, so a cluster-only edit gets reverted.
 ```
+
+A rebuild yields a NEW digest, so the `values.yaml` pin must be updated or the
+pod sits at `ErrImageNeverPull`.
+
+**Recovery when the image is genuinely missing from a node's store:**
+
+```bash
+scripts/ensure-image.sh --from-tar ./astral-key.tar   # restores content + name
+scripts/ensure-image.sh                                # idempotent check
+```
+
+The script guarantees the pinned digest is present *and named* in a node's
+containerd, and exits 1 explaining why when it cannot. This is a manual
+procedure — nothing runs it automatically. Details:
+[`docs/deployment.md`](docs/deployment.md#recovering-a-missing-image).
+
+**MIS and bridges have no deploy path in this repo.** No manifests, no
+`/etc/nixos/k8s/` (all hosts are Omarchy/Arch since 2026-09-17), and no
+`Dockerfile.mosaic-identity` / `Dockerfile.bridges` (use `-f Dockerfile` for
+MIS, `-f docker/Dockerfile.<proto>` for a bridge). Any command of that shape is
+historical — do not run it.
 
 ## Cluster topology
 
