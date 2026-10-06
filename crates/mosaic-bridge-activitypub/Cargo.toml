@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "ActivityPub bridge daemon — implements W3C ActivityPub protocol (WebFinger, Actor, inbox/outbox, federation, HTTP Signatures)"
 edition = "2021"
 license = "MIT"
-rust-version = "1.75"
+rust-version = "1.85"
 
 [dependencies]
 # Async runtime
