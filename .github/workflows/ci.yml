@@ -177,6 +177,13 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          # Containerfile, never the root Dockerfile — they build different
+          # services. Containerfile builds astral-key on 8080 (what this chart
+          # deploys); Dockerfile builds the mosaic-identity sidecar on 8081.
+          # With this unset buildx took the Dockerfile default, so CI went green
+          # while producing a mosaic-identity image tagged as astral-key. Do not
+          # drop this line — the default is the wrong binary.
+          file: ./Containerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
