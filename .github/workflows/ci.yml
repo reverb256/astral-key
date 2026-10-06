@@ -148,6 +148,29 @@ jobs:
             echo "::notice::Docker Hub credentials not configured; skipping image build/push"
           fi
 
+      # Prove the Containerfile builds the astral-key binary, with no registry
+      # and no secrets. This is the step that has to exist: the publish steps
+      # below are skipped whenever the credentials are absent, and a job whose
+      # steps are all skipped still reports green. So without this, nothing in
+      # CI has ever checked that the service image builds at all.
+      #
+      # This runs the real Containerfile with the real build steps, so it cannot
+      # pass by compiling the wrong binary — which is the bug this replaced.
+      #
+      # The assertion is the binary and its startup banner, not `--version`:
+      # astral-key takes no CLI flags and starts its server on any argument, so
+      # `--version` cannot be used as a probe. The banner names the crate, so a
+      # mosaic-identity image fails it. The DB error afterwards is expected — the
+      # container has no writable data dir — and is why only the banner is
+      # matched and not the exit code.
+      - name: Build the service image (no push)
+        if: steps.creds.outputs.have != 'true'
+        run: |
+          docker build -f ./Containerfile -t astral-key:ci-check .
+          docker run --rm astral-key:ci-check 2>&1 | tee /tmp/ci-check.log || true
+          grep -q 'Starting Astral Key' /tmp/ci-check.log \
+            || { echo "::error::image does not start astral-key — check the Containerfile"; exit 1; }
+
       - name: Set up Docker Buildx
         if: steps.creds.outputs.have == 'true'
         uses: docker/setup-buildx-action@v4
