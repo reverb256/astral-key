@@ -5,18 +5,26 @@ version: "3.9"
 # =============================================================================
 # No external dependencies required — the server embeds SQLite.
 #
-# Quick start:
-#   docker compose up -d
+# Quick start (note AK_DATA_DIR -- a named volume will NOT work, see below):
+#   docker build -f Containerfile -t ghcr.io/reverb256/astral-key:latest .
+#   mkdir -p data && sudo chown 1000:1000 data
+#   AK_DATA_DIR="$PWD/data" JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
 #   curl http://localhost:8080/health
 #
-# For production, override JWT_SECRET with a strong random value:
-#   JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
+# No image is published to any registry; you must build it first. And the data
+# dir must be owned by uid 1000 because the image runs as USER 1000.
 # =============================================================================
 
 services:
   astral-key:
-    # Official image on GitHub Container Registry.
-    # Build your own with: docker build -t ghcr.io/reverb256/astral-key:latest .
+    # No registry publishes this image and ghcr.io/reverb256/astral-key does not
+    # exist (verified 2026-10-06: 404 Package not found), so `docker compose up`
+    # fails on pull unless you build it locally first:
+    #
+    #   docker build -f Containerfile -t astral-key:local .
+    #   docker tag astral-key:local ghcr.io/reverb256/astral-key:latest
+    #
+    # The ghcr.io/ prefix below is then only a local tag name; nothing is pushed.
     image: ghcr.io/reverb256/astral-key:latest
     container_name: astral-key
     restart: unless-stopped
@@ -24,13 +32,21 @@ services:
     ports:
       - "8080:8080"
 
+    # REQUIRED, both of these. The image runs as USER 1000 with no WORKDIR, so
+    # it starts in / which uid 1000 cannot write. With a relative DATABASE_URL
+    # and no working_dir, startup dies with:
+    #   "(code: 14) unable to open database file"
+    working_dir: /data
+
     environment:
       # Server
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "8080"
 
-      # Database — SQLite file persisted on the named volume
-      DATABASE_URL: "sqlite:/data/astral-key.db?mode=rwc"
+      # Database — relative name, resolved against working_dir=/data.
+      # An absolute sqlite:///data/... does NOT work: SQLite resolves paths
+      # inside the container, where a named volume's host path does not exist.
+      DATABASE_URL: "sqlite:astral-key.db?mode=rwc"
 
       # JWT — CHANGE THIS IN PRODUCTION
       JWT_SECRET: "${JWT_SECRET:-change-me-to-a-random-secret}"
@@ -43,15 +59,28 @@ services:
       RUST_LOG: "${RUST_LOG:-info,astral_key=debug}"
 
     volumes:
-      # Persistent SQLite database
-      - astral-key-data:/data
+      # Persistent SQLite database.
+      #
+      # Must be a BIND mount of a directory you have chowned to uid 1000 —
+      # `${AK_DATA_DIR:?...}` fails fast if unset. A named volume does NOT work:
+      # Docker creates it root-owned 0755, so USER 1000 gets "Permission denied"
+      # and the service exits with (code: 14). Verified 2026-10-06.
+      #
+      #   mkdir -p data && sudo chown 1000:1000 data
+      #   AK_DATA_DIR="$PWD/data" docker compose up -d
+      - ${AK_DATA_DIR:?set AK_DATA_DIR to a directory owned by uid 1000}:/data
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      # The runtime stage is debian:bookworm-slim and includes neither curl nor
+      # wget, so the previous curl-based test could never pass -- it reported
+      # unhealthy forever. /usr/bin/bash IS present and supports /dev/tcp, so
+      # this probes the real listening socket instead.
+      #
+      # Verified on a running container: exit 0 against a live 8080, and
+      # non-zero ("Connection refused") against a dead port, so it can
+      # actually detect a failure rather than always succeeding.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
-
-volumes:
-  astral-key-data:
