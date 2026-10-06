@@ -48,19 +48,81 @@ export JWT_SECRET=$(openssl rand -hex 32)
 # Build the SERVICE image -- -f Containerfile is required
 docker build -f Containerfile -t astral-key:local .
 
-# Run it directly (compose.yml's image reference does not resolve; see below)
-docker run -d --name astral-key -p 8080:8080 \
+# Run it. -w /data AND DATABASE_URL are both required -- see the note below.
+docker run -d --name astral-key -p 8080:8080 -w /data \
   -e JWT_SECRET="$JWT_SECRET" \
   -e SERVER_HOST=0.0.0.0 \
-  -v astral-key-data:/data \
+  -e DATABASE_URL="sqlite:astral-key.db?mode=rwc" \
+  -v "$PWD/data:/data" \
   astral-key:local
 
 # Verify
-curl http://localhost:8080/health
+curl http://localhost:8080/health    # => 200
 ```
 
 No external database, Redis, or Vaultwarden is required. Astral Key embeds
 SQLite and persists data on a Docker volume.
+
+### Why `-w /data`, `DATABASE_URL`, and a uid-1000 data dir are all mandatory
+
+Three separate conditions, each verified on nexus 2026-10-06. Getting any of
+them wrong produces the same single opaque error:
+
+```
+Error: Database error: error returned from database: (code: 14) unable to open database file
+```
+
+1. **`-w /data` is required.** The image sets no `WORKDIR`, so it starts in `/`,
+   which uid 1000 cannot write. `DATABASE_URL` defaults to the *relative*
+   `sqlite:astral_key.db?mode=rwc`, so the db file is created in the current
+   directory — `/` — and fails.
+
+2. **`DATABASE_URL` must be relative, not an absolute host path.**
+   `sqlite:///home/you/data/ak.db` is resolved by SQLite *inside the container*,
+   where that host path does not exist, so it fails identically. A relative name
+   plus `-w /data` is the form that resolves on both sides.
+
+3. **The data directory must be owned by uid 1000.** A Docker **named volume**
+   does not satisfy this: Docker creates it root-owned `0755`, so `USER 1000`
+   gets `Permission denied`. Use a **bind mount of a directory you chown**:
+
+   ```bash
+   mkdir -p data && sudo chown 1000:1000 data
+   ```
+
+   ```bash
+   # works — verified: /health => 200, docker health => healthy
+   docker run -d -w /data -e DATABASE_URL="sqlite:astral-key.db?mode=rwc" \
+     -v "$PWD/data:/data" astral-key:local
+
+   # both of these die with (code: 14)
+   -v astral-key-data:/data                                   # named volume, root-owned
+   -e DATABASE_URL="sqlite:astral_key.db?mode=rwc"            # relative, cwd=/ unwritable
+   ```
+
+In-cluster this is handled for you: the chart sets `nodeName`,
+`persistence.hostPath: /var/lib/astral-key`, mounts it at `/data`, and sets
+`env.databaseUrl`. The deployed pod is unaffected by any of the above —
+confirmed live: the running pod serves `/health` 200.
+
+### Docker Compose
+
+`docker-compose.yml` encodes all three requirements (`working_dir: /data`,
+a relative `DATABASE_URL`, and a bind mount via `AK_DATA_DIR`), so:
+
+```bash
+docker build -f Containerfile -t ghcr.io/reverb256/astral-key:latest .
+mkdir -p data && sudo chown 1000:1000 data
+AK_DATA_DIR="$PWD/data" JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
+curl http://localhost:8080/health     # => 200 OK
+```
+
+`AK_DATA_DIR` uses `:?` in the compose file, so compose refuses to start with a
+clear message instead of failing later with `(code: 14)`.
+
+The compose healthcheck is a `bash` TCP probe rather than `curl`: the runtime
+stage is `debian:bookworm-slim`, which ships **neither curl nor wget**, so the
+previous `curl -f` test could never pass and reported unhealthy forever.
 
 ### There is no published image
 
