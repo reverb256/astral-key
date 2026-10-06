@@ -12,8 +12,17 @@ image:
 
 images:
   astral-key:
-    digest: "sha256:5eb69f5d76620a98184342841677fda4a3fdd302e339feecc3ccd5b22c7bcf9b"
-    tag: "2026-09-22-sha.5eb69f5d7662"
+    # Rebuilt 2026-10-05 from origin/main 9e36630 on nexus via the Containerfile
+    # (the root Dockerfile builds the mosaic-identity sidecar, not astral-key).
+    #   docker build -f Containerfile -t docker.io/library/astral-key:2026-10-05-rebuild .
+    #   docker save docker.io/library/astral-key:2026-10-05-rebuild \
+    #     | sudo -n k3s ctr images import -
+    # The previous pin (5eb69f5d7662...) was imported once on 2026-09-22 and has
+    # since been garbage-collected from containerd on nexus/forge/zephyr, which is
+    # why the Deployment sat at ErrImageNeverPull for days. Nothing in git
+    # rebuilds this image, so re-pinning to a live digest is the durable fix.
+    digest: "sha256:4a003896479ea47e3efd0f01f9aa35247d86cf4129087bd5bfb294c3d8d9c8ee"
+    tag: "2026-10-05-sha.4a003896479e"
 
 # The pod is pinned to the node whose containerd holds the imported image.
 nodeName: nexus
