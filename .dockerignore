@@ -1,0 +1,70 @@
+# Build context filter.
+#
+# Both the Containerfile (astral-key) and the Dockerfile (mosaic-identity) do
+# `COPY . .`, so everything not listed here is shipped to the daemon as build
+# context. A cargo `target/` is multi-GB; sending it turns a ~1 MB build into a
+# multi-GB transfer. Measured on the astral-key working clone (2026-10-06) by
+# COPYing the context into an image and du-ing it inside the build:
+#
+#   before: 6112144825 bytes (5.7G)  16864 files
+#   after:    808163 bytes (1.0M)      116 files
+#
+# The 116 files are exactly the clean-clone file set (verified by diffing the
+# admitted file list against a fresh `git clone`, which is also 116, zero diff)
+# -- so this filter drops build output without eating a build input.
+#
+# Do NOT add build inputs to this file without checking both builds still work:
+#   docker build -f Containerfile .   # astral-key service (what the chart deploys)
+#   docker build -f Dockerfile .      # mosaic-identity sidecar
+
+# Cargo build output — the multi-GB reason this file exists.
+target/
+
+# Git and GitHub metadata.
+.git/
+.gitignore
+.github/
+.agents/
+.claude/
+.serena/
+
+# Agent/tooling state that is not a build input.
+.skills/
+skills-lock.json
+HEY.md
+AGENTS.md
+
+# Deployment manifests: applied with `kubectl apply`, never compiled in.
+casdoor/
+charts/
+docker/
+
+# Documentation, tests and examples. cargo test fixtures and scratch state.
+docs/
+tests/
+*.md
+!README.md
+
+# Nix flake — the dev shell is for humans, the container builds with cargo.
+flake.nix
+flake.lock
+nix/
+
+# Secrets and local overrides. Never belong in an image layer.
+.env
+.env.*
+!.env.example
+
+# Editor / OS / backup noise.
+*.swp
+*~
+.DS_Store
+*.bak
+*.bak-*
+*.orig
+*.rej
+
+# Local scratch and worktrees.
+scratch/
+worktrees/
+wt/
