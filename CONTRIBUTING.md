@@ -65,10 +65,17 @@ astral-key/
 │   └── utils/            # Utility functions
 ├── migrations/            # SQLx database migrations
 ├── docs/                  # Documentation
-├── Cargo.toml            # Rust dependencies
+├── scripts/              # ensure-image.sh (registry-free image recovery)
+├── Containerfile         # astral-key SERVICE image  <- what the chart deploys
+├── Dockerfile            # mosaic-identity sidecar    <- different service, port 8081
+├── Cargo.toml            # Rust workspace (astral-key + 10 crates)
 ├── flake.nix             # Nix flake (dev shell, package)
 └── docker-compose.yml    # Single-service Docker Compose
 ```
+
+**Two build files, two services.** `docker build .` defaults to `Dockerfile`
+(mosaic-identity) — pass `-f Containerfile` for the astral-key service. CI once
+omitted it and went green while producing the wrong binary.
 
 ## Development Workflow
 
@@ -205,8 +212,35 @@ cargo clippy --tests -- -D warnings
    git tag v0.1.0
    git push origin v0.1.0
    ```
-4. CI builds the container image and publishes to `ghcr.io/reverb256/astral-key`.
-5. Update the `:latest` tag on the container registry.
+4. CI builds the service image from `Containerfile` and verifies it starts
+   astral-key. It **does not push anywhere** — the publish steps only run when
+   Docker Hub credentials are present in repo secrets, and as of 2026-10-06 they
+   are not. `ghcr.io/reverb256/astral-key` has never been published.
+5. To deploy, build on nexus and re-pin the digest in
+   `charts/astral-key/values.yaml` — see
+   [docs/deployment.md](docs/deployment.md#kubernetes-k3s). A rebuild produces a
+   new digest, so the pin must be updated or the pod sits at `ErrImageNeverPull`.
+
+## Operational recovery
+
+The deployed image is registry-free: it lives only in nexus's containerd store,
+pinned by digest with `pullPolicy: Never`. Nothing re-pulls it. If it goes
+missing, the procedure is:
+
+```bash
+scripts/ensure-image.sh                  # every pin in charts/astral-key/values.yaml
+scripts/ensure-image.sh --from-tar ./astral-key.tar   # restore from a docker save tar
+scripts/ensure-image.sh --build          # build from source (yields a NEW digest — re-pin after)
+```
+
+The script is idempotent and safe to re-run. The step it exists to guarantee is
+creating the `<repo>@sha256:<digest>` **name** in the store — an imported image
+that is only tagged will still leave the pod at `ErrImageNeverPull`, and
+`ctr images ls` reports this state as looking fine. Full explanation:
+[docs/deployment.md → Recovering a Missing Image](docs/deployment.md#recovering-a-missing-image).
+
+This is a manual procedure. There is no automation, webhook, or CI job that
+runs `ensure-image.sh` for you.
 
 ## License
 

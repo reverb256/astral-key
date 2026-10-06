@@ -5,7 +5,8 @@ database). This guide covers deployment options.
 
 ## Table of Contents
 
-- [Quick Start (Docker Compose)](#quick-start-docker-compose)
+- [Which build file do I use?](#which-build-file-do-i-use) **(read this first)**
+- [Quick Start (local, no registry)](#quick-start-local-no-registry)
 - [Docker Compose (Detailed)](#docker-compose-detailed)
 - [Nix / NixOS](#nix--nixos)
 - [Kubernetes (K3s)](#kubernetes-k3s)
@@ -16,7 +17,25 @@ database). This guide covers deployment options.
 
 ---
 
-## Quick Start (Docker Compose)
+## Which build file do I use?
+
+**This repo has two container build files and they build different services.**
+
+| File | Builds | Port | Deployed by the chart? |
+|------|--------|------|------------------------|
+| **`Containerfile`** | `astral-key` — the auth service | 8080 | **Yes.** This is the one. |
+| `Dockerfile` | `mosaic-identity` — the PKI sidecar | 8081 | No. Secondary service. |
+
+Always pass `-f Containerfile` for the astral-key service. `docker build .`
+with no `-f` picks `Dockerfile` and silently produces a *mosaic-identity*
+image. This is not theoretical: CI did exactly that for a long time and went
+green on every run while building the wrong binary. There is no image published
+to any registry for either service, so a bare `docker compose up` cannot work
+either (see below).
+
+---
+
+## Quick Start (local, no registry)
 
 ```bash
 # Clone the repository
@@ -26,8 +45,15 @@ cd astral-key
 # Set a strong JWT secret
 export JWT_SECRET=$(openssl rand -hex 32)
 
-# Start the service
-docker compose up -d
+# Build the SERVICE image -- -f Containerfile is required
+docker build -f Containerfile -t astral-key:local .
+
+# Run it directly (compose.yml's image reference does not resolve; see below)
+docker run -d --name astral-key -p 8080:8080 \
+  -e JWT_SECRET="$JWT_SECRET" \
+  -e SERVER_HOST=0.0.0.0 \
+  -v astral-key-data:/data \
+  astral-key:local
 
 # Verify
 curl http://localhost:8080/health
@@ -35,6 +61,29 @@ curl http://localhost:8080/health
 
 No external database, Redis, or Vaultwarden is required. Astral Key embeds
 SQLite and persists data on a Docker volume.
+
+### There is no published image
+
+`docker-compose.yml` references `ghcr.io/reverb256/astral-key:latest`, and older
+revisions of this document claimed that image was published. **It does not
+exist.** Verified 2026-10-06:
+
+```
+$ gh api /users/reverb256/packages/container/astral-key
+{"message":"Package not found.", "status":"404"}
+```
+
+So `docker compose up -d` fails on image pull. Build locally with the
+`Containerfile` as above, or point compose at your own tag:
+
+```bash
+docker build -f Containerfile -t astral-key:local .
+docker tag astral-key:local ghcr.io/reverb256/astral-key:latest   # local only
+docker compose up -d                                             # now resolves
+```
+
+Nothing is pushed anywhere. The `ghcr.io/` prefix is just a local tag name at
+that point.
 
 ---
 
@@ -45,14 +94,17 @@ See [`docker-compose.yml`](../docker-compose.yml) for the canonical file.
 ### Building the image locally
 
 ```bash
-docker build -t ghcr.io/reverb256/astral-key:latest .
+docker build -f Containerfile -t astral-key:local .   # Containerfile, not Dockerfile
+docker tag astral-key:local ghcr.io/reverb256/astral-key:latest
 docker compose up -d
 ```
 
 ### Using a pre-built image
 
-Images are published to `ghcr.io/reverb256/astral-key`. The Docker Compose
-file references this image by default.
+There isn't one. No registry in this cluster holds an astral-key image, and
+`ghcr.io/reverb256/astral-key` was never published (see above). Build it
+locally, or see [K3s deployment](#kubernetes-k3s) for how the deployed image is
+produced and where it lives.
 
 ### Environment overrides
 
@@ -74,6 +126,10 @@ docker compose --env-file .env up -d
 ---
 
 ## Nix / NixOS
+
+No NixOS hosts remain in this fleet — everything is Omarchy/Arch since
+2026-09-17, so `/etc/nixos/k8s/` paths in older docs are historical. The flake
+below is still useful as a dev shell.
 
 ### Nix Flake (Dev Shell)
 
@@ -98,8 +154,85 @@ cargo build --release
 
 ## Kubernetes (K3s)
 
-Astral Key is deployed on a K3s cluster in production. See the `k8s/`
-directory for manifests. Example deployment:
+Astral Key is deployed by **ArgoCD** from the Helm chart at
+[`charts/astral-key/`](../charts/astral-key/), not from manifests in this repo.
+There is no `k8s/` directory here; the deployment templates are
+`charts/astral-key/templates/*.yaml` and values are in `charts/astral-key/values.yaml`.
+Ignore any older reference to `k8s/astral-key-deployment.yaml` — it does not
+exist in the repo.
+
+### There is no registry
+
+`nexus:5000` was decommissioned on 2026-09-17 and must not be resurrected. No
+other registry exists in this cluster. The deployment therefore runs
+registry-free:
+
+- `pullPolicy: Never` — kubelet never pulls.
+- the image lives **only** in the containerd store of one node (`nodeName: nexus`),
+- the reference is `docker.io/library/astral-key@sha256:<digest>` — a *named*
+  digest reference, not a tag.
+
+### Build, import, and name it
+
+Run this on **nexus** (the node that runs the pod). Never on zephyr: ~12 GB RAM,
+cordoned, and a Rust release build OOMs it.
+
+```bash
+# 1. Build the service image. -f Containerfile is mandatory.
+sudo -n docker build -f Containerfile -t docker.io/library/astral-key:local .
+
+# 2. Read back the digest this build actually produced.
+sudo -n docker image inspect docker.io/library/astral-key:local \
+  --format '{{index .RepoDigests 0}}' 2>/dev/null || \
+sudo -n docker image inspect docker.io/library/astral-key:local \
+  --format '{{.Id}}'
+
+# 3. Import into the node's containerd store.
+sudo -n docker save docker.io/library/astral-key:local \
+  | sudo -n k3s ctr images import -
+
+# 4. THE STEP THAT IS EASY TO MISS: name the pinned digest in the store.
+#    Under pullPolicy: Never, CRI resolves repo@sha256:... ONLY if a reference
+#    of that exact name exists. A tag alone does not satisfy it, so a fully
+#    imported image can still leave the pod at ErrImageNeverPull.
+sudo -n k3s ctr images tag --force \
+  docker.io/library/astral-key:local \
+  docker.io/library/astral-key@sha256:<digest-from-step-2>
+
+# 5. Confirm the NAME is present (not just the content digest).
+sudo -n k3s ctr images ls -q | grep 'astral-key@sha256:'
+```
+
+A one-liner that does 3-5 correctly:
+
+```bash
+scripts/ensure-image.sh --build    # reads repo+digest from the chart, no-ops if already present
+```
+
+Note that `--build` produces a **new** digest, so it does not satisfy an
+existing pin. See [Recovering a Missing Image](#recovering-a-missing-image) for
+the correct recovery semantics.
+
+### Re-pin after a rebuild
+
+A rebuild never reproduces the previous digest, so `values.yaml` must be updated
+or the pod will sit at `ErrImageNeverPull` against the old pin. Edit
+`charts/astral-key/values.yaml`:
+
+```yaml
+images:
+  astral-key:
+    digest: "sha256:<new digest>"
+    tag: "<date>-sha.<short digest>"   # annotation only, not used to pull
+```
+
+ArgoCD self-heals from `main`, so this is the only place the change belongs —
+a cluster-only edit gets reverted.
+
+### Minimal deployment shape
+
+For reference, the rendered essentials (full templates in
+`charts/astral-key/templates/`):
 
 ```yaml
 apiVersion: apps/v1
@@ -118,7 +251,8 @@ spec:
     spec:
       containers:
       - name: astral-key
-        image: ghcr.io/reverb256/astral-key:latest
+        image: docker.io/library/astral-key@sha256:<digest>
+        imagePullPolicy: Never
         ports:
         - containerPort: 8080
         env:
@@ -303,22 +437,49 @@ curl -X POST http://localhost:8081/keys/generate -H 'Content-Type: application/j
 curl -X POST http://localhost:8081/bindings/resolve -H 'Content-Type: application/json' -d '{"did_or_handle":"bsky.app"}'
 ```
 
-### Docker (k3s deploy)
+### Docker build (MIS)
+
+The root `Dockerfile` builds `mosaic-identity`:
 
 ```bash
-docker build --no-cache -t nexus:5000/mosaic-identity:v0.1.0 -f Dockerfile.mosaic-identity .
-docker save nexus:5000/mosaic-identity:v0.1.0 | sudo ctr -n k8s.io images import -
+# On nexus. -f Dockerfile (the default) is correct here -- this IS the MIS image.
+sudo -n docker build -f Dockerfile -t mosaic-identity:local .
 
-docker build --no-cache -t nexus:5000/mosaic-bridges:v0.1.0 -f Dockerfile.bridges .
-docker save nexus:5000/mosaic-bridges:v0.1.0 | sudo ctr -n k8s.io images import -
-
-kubectl apply -f /etc/nixos/k8s/mosaic-identity/deployment.yaml
-kubectl apply -f /etc/nixos/k8s/mosaic-bridges/
+# Same registry-free import path as the service image.
+sudo -n docker save mosaic-identity:local | sudo -n k3s ctr images import -
 ```
+
+The builder stage pins `rust:1.88-slim-bookworm`. It cannot be older than
+**1.85**: `Cargo.lock` resolves `clap_lex` 1.1.1, whose manifest requires the
+`edition2024` cargo feature stabilized in 1.85, and the build fails on 1.75 with
+`feature 'edition2024' is required`. The workspace `rust-version` fields were
+raised from 1.75 to 1.85 for the same reason.
+
+### No MIS/bridge deployment manifests exist
+
+Earlier revisions of this document gave commands for deploying MIS and the
+bridges. **All of those commands are dead**, for three separate reasons:
+
+1. **`nexus:5000` was decommissioned 2026-09-17.** Verified 2026-10-06:
+   nothing listens on port 5000 and `curl http://nexus:5000/v2/` returns
+   `000` (no route to host). Do not resurrect it.
+2. **`Dockerfile.mosaic-identity` and `Dockerfile.bridges` do not exist.** The
+   root `Dockerfile` builds MOSAIC identity; the bridges have per-protocol
+   files under `docker/` (`Dockerfile.atproto`, `Dockerfile.buzz`, …). Use
+   `-f Dockerfile` for MIS and `-f docker/Dockerfile.<proto>` for a bridge.
+3. **`/etc/nixos/k8s/` does not exist.** All hosts are Omarchy/Arch since
+   2026-09-17; there are no NixOS hosts, and no MIS or bridge workload is
+   deployed from this repo today. Astral Key itself deploys via ArgoCD from
+   `charts/astral-key/`, not via `kubectl apply`.
+
+If MIS needs deploying, the deploy path has to be written and committed first —
+there is no existing one to copy.
 
 ### Known issues
 
 - **PVC slow**: `local-path` provisioner takes ~30s. Workaround: `emptyDir: {}`.
 - **Bridge UID**: Container `appuser` = UID 100. k8s `runAsUser: 100` required.
-- **NixOS k3s unit bug**: No ExecStart when `role=server` + `clusterInit=false`. Workaround: systemd drop-in at `/run/systemd/system/k3s.service.d/override.conf`.
-- **No registry push**: `nexus:5000` resolves to `127.0.0.2` on host. Use `docker save | ctr import`.
+- **Container image must be named, not just present** — under `pullPolicy: Never`
+  the `@sha256:` name has to exist in the store or the pod stays at
+  `ErrImageNeverPull`. `scripts/ensure-image.sh` handles this; see
+  [Recovering a Missing Image](#recovering-a-missing-image).
