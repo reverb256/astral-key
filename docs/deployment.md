@@ -9,6 +9,7 @@ database). This guide covers deployment options.
 - [Docker Compose (Detailed)](#docker-compose-detailed)
 - [Nix / NixOS](#nix--nixos)
 - [Kubernetes (K3s)](#kubernetes-k3s)
+- [Recovering a Missing Image](#recovering-a-missing-image)
 - [Environment Variables](#environment-variables)
 - [Health Checks](#health-checks)
 - [Production Checklist](#production-checklist)
@@ -164,6 +165,55 @@ spec:
     targetPort: 8080
   type: ClusterIP
 ```
+
+---
+
+## Recovering a Missing Image
+
+There is no registry. `nexus:5000` was decommissioned on 2026-09-17, so the
+image exists only in each node's containerd store and the Deployment references
+it as `<repo>@sha256:<digest>` with `pullPolicy: Never`. Nothing re-pulls it.
+If the store loses it — `ctr` garbage collection, a rebuilt node, a node
+restored from backup — the pod waits at `ErrImageNeverPull` until it is put
+back by hand.
+
+```bash
+# On the node that runs the pod. Reads the digest from the chart values, so it
+# cannot drift from what is deployed. Safe to re-run.
+scripts/ensure-image.sh
+
+# If the content is gone entirely and you have a `docker save` tar of the
+# original build:
+scripts/ensure-image.sh --from-tar ./astral-key.tar
+```
+
+Confirm what the store actually holds:
+
+```bash
+sudo k3s ctr -n k8s.io images ls -q | grep 'astral-key@'
+```
+
+**The trap:** a `:tag` is not enough, even when it points at exactly the right
+layers. Under `pullPolicy: Never` CRI resolves `repo@sha256:...` only if the
+store carries that *name*. So an image can be fully present, visible in
+`ctr images ls`, and still leave the pod at `ErrImageNeverPull`. `ensure-image.sh`
+always ends by creating the `@sha256:` name, so it is that final step that
+matters:
+
+```bash
+sudo k3s ctr -n k8s.io images tag --force <repo>:<tag> <repo>@sha256:<digest>
+```
+
+Read the digest back from `ctr images ls` rather than typing it — `ctr images
+tag` accepts any well-formed digest, so a typo produces a pin that looks valid
+and resolves to nothing.
+
+Rebuilding is *not* recovery. A fresh build produces a different digest, so if
+the content is genuinely gone, restoring the existing pin requires the original
+tar; a rebuild means changing the pin and letting ArgoCD sync.
+
+Build with the `Containerfile`. The root `Dockerfile` builds `mosaic-identity`
+on port 8081 — a different service — and is not what this chart deploys.
 
 ---
 
