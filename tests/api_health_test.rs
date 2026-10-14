@@ -8,7 +8,9 @@ use axum::{body::Body, http::Request, response::IntoResponse, routing::get, Rout
 use serde_json::Value;
 use tower::ServiceExt;
 
+use astral_key::auth::keys::KeyService;
 use astral_key::config::Config;
+use astral_key::db::models::user::User;
 use astral_key::state::AppState;
 
 /// Build a test app state with an in-memory SQLite database.
@@ -180,6 +182,76 @@ async fn test_unknown_route_returns_404() {
         .unwrap();
 
     assert_eq!(response.status(), 404);
+}
+
+#[tokio::test]
+async fn test_api_key_verify_endpoint() {
+    let state = test_state().await;
+
+    // Seed a user and an API key directly against the in-memory DB.
+    let user = User::create(state.db.inner()).await.expect("create user");
+    let (summary, raw_key) = KeyService::create_key(
+        state.db.inner(),
+        user.id,
+        "gateway-admin",
+        &["ai-gateway:admin"],
+        "prod",
+        None,
+    )
+    .await
+    .expect("create key");
+    assert_eq!(summary.name, "gateway-admin");
+
+    let app = test_app(state);
+
+    // Valid key → valid: true with metadata.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/keys/verify")
+                .method("POST")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({ "api_key": raw_key }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["valid"], true);
+    assert_eq!(json["name"], "gateway-admin");
+    assert_eq!(json["environment"], "prod");
+    assert_eq!(json["scopes"][0], "ai-gateway:admin");
+
+    // Bogus key → valid: false.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/keys/verify")
+                .method("POST")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({ "api_key": "ak_prod_boguskey123" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["valid"], false);
 }
 
 #[tokio::test]

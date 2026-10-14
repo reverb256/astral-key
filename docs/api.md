@@ -580,6 +580,51 @@ Revoke an API key (soft delete — sets `revoked_at`). **Requires JWT.**
 
 ---
 
+### `POST /api/v1/auth/keys/verify`
+
+Verify an API key. **Public** — no JWT required, so delegated services can
+validate `ak_*` keys without authenticating first.
+
+**Request:**
+
+```json
+{
+  "api_key": "ak_prod_AbCdEfGhIjKlMnOpQrStUvWxYz..."
+}
+```
+
+**Response `200` (valid):**
+
+```json
+{
+  "valid": true,
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "My Key",
+  "scopes": ["dns:read", "pages:deploy"],
+  "environment": "prod",
+  "user_id": "550e8400-e29b-41d4-a716-446655440001",
+  "expires_at": "2026-08-15T00:00:00Z"
+}
+```
+
+**Response `200` (invalid — note this always returns 200 with the error
+in the body; it does not return 401):**
+
+```json
+{
+  "valid": false,
+  "error": "Invalid API key"
+}
+```
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/keys/verify \
+  -H "Content-Type: application/json" \
+  -d '{"api_key": "ak_prod_..."}'
+```
+
+---
+
 ## ZK JIT Capability Tokens
 
 These endpoints require `JIT_ISSUER_KEY` to be configured. If not set, they

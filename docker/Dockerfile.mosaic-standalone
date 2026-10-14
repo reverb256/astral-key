@@ -1,0 +1,27 @@
+# Standalone MIS build — mosaic-identity crate only (no full workspace)
+# Multi-stage: rust builder → distroless runtime
+FROM rust:1.88-slim-bookworm AS builder
+WORKDIR /src
+
+RUN apt-get update && apt-get install -y pkg-config libssl-dev cmake clang && rm -rf /var/lib/apt/lists/*
+
+# Copy crate manifest + workspace lock for dep caching
+COPY crates/mosaic-identity/Cargo.toml Cargo.toml
+COPY Cargo.lock Cargo.lock
+
+# Stub sources so dependency layer builds first
+RUN mkdir -p src && echo "fn main() {}" > src/main.rs && \
+    echo "pub mod api; pub mod config; pub mod crypto; pub mod error; pub mod nostr; pub mod storage; pub mod bindings;" > src/lib.rs && \
+    cargo build --release 2>/dev/null || true
+
+# Real sources
+COPY crates/mosaic-identity/src/ src/
+COPY crates/mosaic-identity/migrations/ migrations/
+RUN cargo build --release
+
+FROM gcr.io/distroless/cc-debian12
+COPY --from=builder /src/target/release/mosaic-identity /usr/local/bin/mosaic-identity
+EXPOSE 8081
+VOLUME ["/data"]
+ENV MIS_DATABASE_URL=sqlite:///data/mosaic-identity.db?mode=rwc
+ENTRYPOINT ["mosaic-identity"]
