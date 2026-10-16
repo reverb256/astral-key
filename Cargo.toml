@@ -90,6 +90,7 @@ pqcrypto-traits = "0.3"
 # MCP server (optional)
 rmcp = { version = "2", features = ["transport-io", "schemars", "macros"], optional = true }
 alloy-primitives = { version = "0.8.0", features = ["k256"] }
+rsa = "0.9.10"
 
 [dev-dependencies]
 tokio-test = "0.4"
