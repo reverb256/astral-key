@@ -97,7 +97,7 @@ JWT_SECRET=$(openssl rand -hex 32) ./target/release/astral-key
 | **Ed25519 Identity** | Public-key identity management, signature verification, contact graph. |
 | **ZK JIT Capability Tokens** | Ed25519-signed scoped tokens with epoch-based revocation. |
 | **API Key Management** | Argon2id-hashed API keys with prefix format `ak_prod_...`. |
-| **OIDC Provider** | Astral Key as an OpenID Connect identity provider (authorization-code flow + PKCE, EdDSA id_tokens) for oauth2-proxy and other relying parties. |
+| **OIDC Provider** | Astral Key as an OpenID Connect identity provider (authorization-code flow + PKCE, RS256 or EdDSA id_tokens, groups) for oauth2-proxy and other relying parties. |
 
 ### 🔜 Coming Soon
 
@@ -212,6 +212,25 @@ export OIDC_CLIENT_SECRET_FILE=/run/secrets/astral-key-oidc-client-secret
 export OIDC_REDIRECT_URIS=https://auth.lan/oauth2/callback
 # 64-hex Ed25519 seed (pin this — the JWKS changes across restarts otherwise)
 export OIDC_SIGNING_KEY_FILE=/run/secrets/astral-key-oidc-signing-key
+# Optional RSA key: when set, every token is signed RS256 instead of EdDSA
+export OIDC_RSA_KEY_FILE=/run/secrets/astral-key-oidc-rsa-key
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OIDC_ENABLED` | `false` | Master switch for the provider |
+| `OIDC_ISSUER` | `https://auth.lan` | Public issuer URL — must match the RP configuration |
+| `OIDC_SIGNING_KEY[_FILE]` | ephemeral | 64-hex Ed25519 seed. Pin it in production, or the JWKS changes on restart |
+| `OIDC_RSA_KEY[_FILE]` | — | PKCS#8/PKCS#1 RSA private key PEM. When set, tokens are signed **RS256** with `kid` = SHA-256 of the modulus (truncated); otherwise **EdDSA** |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET[_FILE]` | `astral-key-oidc` / — | Legacy single client, upserted into the `oidc_clients` table at boot |
+| `OIDC_REDIRECT_URIS` | `https://auth.lan/oauth2/callback` | Comma-separated redirect URIs for the legacy client |
+| `OIDC_ACCESS_TOKEN_TTL` / `OIDC_ID_TOKEN_TTL` | `3600` / `600` | Token lifetimes (seconds) |
+| `OIDC_REFRESH_TOKEN_TTL` | `604800` | Refresh-token lifetime (seconds, max 10 years) |
+
+Generate an RSA signing key:
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out oidc_rsa.pem
 ```
 
 Endpoints (all relative to the issuer root):
@@ -219,10 +238,50 @@ Endpoints (all relative to the issuer root):
 | Endpoint | Description |
 |----------|-------------|
 | `/.well-known/openid-configuration` | OIDC discovery document |
-| `/.well-known/jwks.json` | Ed25519 signing key (JWKS) |
+| `/.well-known/jwks.json` | Signing key(s): the Ed25519 key, plus the RSA key when configured |
 | `/oidc/authorize` | Authorization endpoint (GET: login page, POST: code issue) |
-| `/oidc/token` | Token endpoint (authorization-code + PKCE) |
+| `/oidc/token` | Token endpoint (authorization-code and refresh_token grants, PKCE) |
 | `/oidc/userinfo` | Userinfo endpoint |
+
+**Clients.** Relying parties are rows in the `oidc_clients` table
+(`migrations/006_oidc_clients.sql`), resolved on every authorize and token
+request — a client added with SQL is live without a restart. Redirect URIs
+are matched **exactly**. A client with a `client_secret_hash` is
+confidential: the stored value is the lowercase hex SHA-256 of the secret,
+and the token endpoint requires `client_secret_post` or
+`client_secret_basic`. A client with `client_secret_hash IS NULL` is public
+and MUST use PKCE S256 (`code_challenge_method=S256`). At boot the legacy
+`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET` client is upserted into the table, so
+existing installs keep working; an empty configured secret registers that
+client as public.
+
+```sql
+-- Confidential client (SHA-256 hash of the secret)
+INSERT INTO oidc_clients (client_id, client_secret_hash, redirect_uris, allowed_scopes)
+VALUES ('grafana', '<sha256-hex-of-secret>', '["https://grafana.lan/login/generic_oauth"]',
+        '["openid","profile","email"]');
+
+-- Public PKCE client
+INSERT INTO oidc_clients (client_id, client_secret_hash, redirect_uris, allowed_scopes)
+VALUES ('spa', NULL, '["https://spa.lan/callback"]', NULL);
+```
+
+**Groups.** Membership in `oidc_groups` + `oidc_group_members`
+(`migrations/007_oidc_groups.sql`) drives the `groups` claim. It is always an
+array — empty when the user has no membership — in both the id_token and
+`/oidc/userinfo`. SQL seeding is the management path:
+
+```sql
+INSERT INTO oidc_groups (name) VALUES ('admins');
+INSERT INTO oidc_group_members (user_id, group_name) VALUES ('<user uuid>', 'admins');
+```
+
+**Claims.** `email_verified` is emitted as `true` only together with `email`,
+and omitted when the account has no address. No verification e-mail is sent:
+it asserts that the address was set by the owner or an upstream provider.
+`refresh_token` is issued with every authorization-code exchange and rotates
+on use (`grant_type=refresh_token`); each refresh token is single-use and
+only its SHA-256 hash is stored.
 
 The first user is bootstrapped via `POST /api/v1/auth/fido2/bootstrap/options` +
 `/bootstrap/verify` (enabled only while no passkey exists) — the login page
