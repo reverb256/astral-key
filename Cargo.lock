@@ -477,6 +477,7 @@ dependencies = [
  "reqwest",
  "ring",
  "rmcp",
+ "rsa",
  "serde",
  "serde_json",
  "sha2",
