@@ -14,6 +14,7 @@ All authentication endpoints are prefixed with `/api/v1`.
 - [Ed25519 Identity](#ed25519-identity)
 - [Contacts](#contacts)
 - [QR Codes](#qr-codes)
+- [OIDC Provider](#oidc-provider)
 - [OAuth (GitHub)](#oauth-github)
 - [Error Responses](#error-responses)
 
@@ -859,6 +860,148 @@ For PNG format, `data` is a `data:image/png;base64,...` URI.
 
 ```bash
 curl "http://localhost:8080/api/v1/identity/qr/base64urlpubkey?format=svg&width=300"
+```
+
+---
+
+## OIDC Provider
+
+Astral Key acts as an OpenID Connect **provider** when `OIDC_ENABLED=true`.
+These endpoints live at the issuer root (not under `/api/v1`), because RPs
+resolve discovery relative to the issuer.
+
+Supported: authorization-code flow with PKCE (S256), the `refresh_token`
+grant, `client_secret_post` / `client_secret_basic` / public PKCE clients.
+Not supported: implicit flow, device flow, `plain` PKCE.
+
+Token signing is **RS256** when `OIDC_RSA_KEY[_FILE]` is configured, otherwise
+**EdDSA** (Ed25519). The JOSE header carries `kid`, which matches the entry in
+the JWKS.
+
+### `GET /.well-known/openid-configuration`
+
+Discovery document. `id_token_signing_alg_values_supported` lists the single
+algorithm this deployment signs with.
+
+### `GET /.well-known/jwks.json`
+
+Signing keys. The Ed25519 key is always present; the RSA key is added when
+configured.
+
+```json
+{
+  "keys": [
+    {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "alg": "EdDSA",
+      "use": "sig",
+      "kid": "<ed25519 kid>",
+      "x": "<base64url x>"
+    },
+    {
+      "kty": "RSA",
+      "alg": "RS256",
+      "use": "sig",
+      "kid": "<rsa kid>",
+      "n": "<base64url modulus>",
+      "e": "AQAB"
+    }
+  ]
+}
+```
+
+### `GET /oidc/authorize`
+
+Query parameters: `client_id`, `redirect_uri`, `response_type=code`,
+`scope` (must include `openid`), `state`, `nonce`, `code_challenge`,
+`code_challenge_method=S256`.
+
+`client_id` is resolved from the `oidc_clients` table and `redirect_uri` is
+matched exactly. Unknown client, unregistered callback, missing `openid`
+scope, a scope outside the client registration, or a public client without
+PKCE S256 → `400`. On success the WebAuthn login page is returned with the
+authorize session id embedded.
+
+### `POST /oidc/authorize`
+
+JSON body:
+
+```json
+{ "session_id": "<from the login page>", "access_token": "<Astral Key JWT>" }
+```
+
+Response `200`:
+
+```json
+{ "redirect_url": "https://rp.example/callback?code=<code>&state=<state>" }
+```
+
+The authorization code is single-use and expires with the session (10
+minutes).
+
+### `POST /oidc/token`
+
+`application/x-www-form-urlencoded`.
+
+**`grant_type=authorization_code`** — `code`, `redirect_uri` (must equal the
+value used at authorize), `client_id`, `client_secret` (confidential clients
+only, or HTTP Basic), `code_verifier`.
+
+```json
+{
+  "access_token": "<jwt>",
+  "id_token": "<jwt>",
+  "refresh_token": "<64-hex opaque>",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "openid profile email"
+}
+```
+
+**`grant_type=refresh_token`** — `refresh_token` plus client credentials.
+Rotates the token: the presented value is deleted and a new one returned.
+Replaying a rotated or expired token → `401`. A refreshed id_token carries no
+`nonce`.
+
+id_token claims: `iss`, `aud`, `azp`, `sub`, `exp`, `iat`, `nonce` (when
+supplied), `email`, `email_verified` (only with an email), `name`,
+`preferred_username`, `groups` (always an array, empty when none).
+
+### `GET /oidc/userinfo`
+
+`Authorization: Bearer <access_token>`. The token's `aud` must be a
+registered client.
+
+```json
+{
+  "sub": "<user uuid>",
+  "email": "jane@example.com",
+  "email_verified": true,
+  "name": "Jane Doe",
+  "preferred_username": "Jane Doe",
+  "groups": ["admins", "devs"]
+}
+```
+
+### Managing clients and groups
+
+Server-to-server is not provided: clients and groups are managed with SQL
+against `oidc_clients`, `oidc_groups` and `oidc_group_members`, and are read
+on every request (no restart needed). The legacy
+`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET` client is upserted at boot.
+
+```sql
+-- Confidential client: client_secret_hash is lowercase hex SHA-256
+INSERT INTO oidc_clients (client_id, client_secret_hash, redirect_uris, allowed_scopes)
+VALUES ('grafana', '<sha256-hex-of-secret>', '["https://grafana.lan/login/generic_oauth"]', NULL);
+
+-- Public PKCE client
+INSERT INTO oidc_clients (client_id, client_secret_hash, redirect_uris, allowed_scopes)
+VALUES ('spa', NULL, '["https://spa.lan/callback"]', NULL);
+
+INSERT INTO oidc_groups (name) VALUES ('admins');
+INSERT INTO oidc_group_members (user_id, group_name) VALUES ('<user uuid>', 'admins');
 ```
 
 ---
