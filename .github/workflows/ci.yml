@@ -26,7 +26,11 @@ on:
     # Which time: 06:17 UTC, not 06:00. `stale.yml` already owns 06:00, and GitHub
     # documents that runs scheduled on the hour are the ones delayed or dropped
     # under load. 17 past is deliberately off the hour.
-    - cron: "17 6 * * *"
+    # TEMPORARY (card t_31e1eb48): the probe cron below exists only so the schedule
+    # trigger fires within minutes instead of waiting for 06:17 UTC, which is how the
+    # trigger was observed on a real run. The next commit restores the nightly cron
+    # and drops this block; both probe commits carry [skip ci] so they add no runs.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     # Same audit, on demand, without waiting for the timer. Useful when
     # re-verifying a dependency fix.
