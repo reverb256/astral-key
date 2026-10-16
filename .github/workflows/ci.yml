@@ -26,15 +26,28 @@ on:
     # Which time: 06:17 UTC, not 06:00. `stale.yml` already owns 06:00, and GitHub
     # documents that runs scheduled on the hour are the ones delayed or dropped
     # under load. 17 past is deliberately off the hour.
-    # TEMPORARY probe v2 (card t_31e1eb48): a */5 probe sat on main for 35 minutes
-    # without a single scheduled run, which is consistent with GitHub starving or
-    # dropping high-frequency schedules (documented as best-effort, lowest priority).
-    # This probe uses infrequent, imminent slots instead - the frequency that does get
-    # delivered here (stale.yml's daily cron has landed on 19 of its last 19 days).
-    # Restored to the single nightly cron by the next commit.
-    - cron: "10 * * * *"
-    - cron: "30 * * * *"
-    - cron: "50 * * * *"
+    - cron: "17 6 * * *"
+    # TEMPORARY probe v3 (card t_31e1eb48) — deleted by the next commit.
+    #
+    # Why a probe exists at all: the production entry above is 06:17 UTC, ~11h
+    # away, so the `schedule` trigger cannot be observed on a real run inside the
+    # session that added it. This entry makes the same workflow due within minutes
+    # so the trigger can be *observed* rather than assumed.
+    #
+    # Why `2/5` and not `*/5`: `*/5` fires on minute 0, i.e. the start of the hour,
+    # which GitHub names as the slot most likely to be delayed or dropped
+    # ("High load times include the start of every hour. To decrease the chance of
+    # delay, schedule your workflow to run at a different time of the hour." —
+    # docs.github.com/en/actions/reference/events-that-trigger-workflows#schedule).
+    # `2/5` is the same 5-minute density, shifted off minute 0.
+    #
+    # Measured context, so nobody re-tries a fast probe expecting a fast answer:
+    # GitHub's schedule delivery on THIS repo lags by hours. stale.yml's `0 6 * * *`
+    # delivered once a day at 10:32-14:48 UTC across its last 30 scheduled runs,
+    # i.e. 4.5-8.8h after the time it asked for. A `*/5` probe sat here for 31
+    # minutes (six due slots) and produced no run at all. So the probe below is a
+    # 5-minute density gambling against a multi-hour delivery lag, not a certainty.
+    - cron: "2/5 * * * *"
   workflow_dispatch:
     # Same audit, on demand, without waiting for the timer. Useful when
     # re-verifying a dependency fix.
