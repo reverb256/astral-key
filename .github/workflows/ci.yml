@@ -7,16 +7,53 @@ on:
     branches: [ main, develop, master ]
   pull_request:
     branches: [ main, develop, master ]
+  schedule:
+    # Nightly RustSec re-audit of main.
+    #
+    # Why a timer at all: without it the audit job only fires on push/pull_request,
+    # so an advisory published against an *unchanged* Cargo.lock is invisible until
+    # somebody happens to push. That is exactly how RUSTSEC-2026-0346..0349 (four
+    # advisories against rustls 0.23.45, published 2026-10-14) sat unnoticed on a
+    # green main until the next push turned it red — run 38603471032, nothing in
+    # the repo having changed in between.
+    #
+    # Which ref: main, and that is not a free choice — GitHub runs a scheduled
+    # workflow from, and against, the default branch, and only if the schedule
+    # entry is in the workflow file on that branch. Re-auditing develop/master on
+    # a timer would mean a second schedule entry in each of those branches' copies
+    # of this file. main is the branch that ships, so main is the one re-audited.
+    #
+    # Which time: 06:17 UTC, not 06:00. `stale.yml` already owns 06:00, and GitHub
+    # documents that runs scheduled on the hour are the ones delayed or dropped
+    # under load. 17 past is deliberately off the hour.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    # Same audit, on demand, without waiting for the timer. Useful when
+    # re-verifying a dependency fix.
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
-  # Lint and formatting checks
+  # A `schedule` run executes ONLY the `audit` job. Every other job below is
+  # gated off for that event (`if: github.event_name != 'schedule'`).
+  #
+  # Why the nightly is audit-only: main's tree does not change between pushes, so
+  # lint/test/build would re-derive the answer they already produced for that
+  # commit — and `test` alone drags in postgres+redis services and a from-source
+  # tarpaulin install, so the nightly would cost the full ~10 minute job to
+  # re-confirm a known result. The one input that DOES change without a commit is
+  # the RustSec advisory database, and only `audit` reads it. Keeping the nightly
+  # to exactly the job whose answer can change also keeps the signal sharp: a red
+  # nightly then means an advisory, never a flaky test, and cannot be waved off as
+  # one.
+
+  # Lint and formatting checks (push / pull_request only — see the note above)
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v7
 
@@ -49,10 +86,11 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  # Run unit tests
+  # Run unit tests (push / pull_request only — see the note above jobs)
   test:
     name: Test
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     services:
       postgres:
         image: postgres:15
@@ -112,7 +150,19 @@ jobs:
         with:
           file: ./cobertura.xml
 
-  # Security audit
+  # Security audit — runs on push/pull_request AND on the nightly schedule above.
+  #
+  # One command for both triggers, deliberately: a scheduled red then means
+  # exactly what a push red means.
+  #
+  # Not `--deny warnings`: cargo-audit already exits non-zero on vulnerabilities
+  # (proven on main at run 38603471032: "error: 4 vulnerabilities found!"), while
+  # the 8 warnings this lockfile carries are unmaintained/yanked crates accepted
+  # on purpose in t_1ccfae8f. Denying warnings would make every nightly red for
+  # known, accepted noise and train people to ignore the run that matters.
+  #
+  # `.cargo/audit.toml` keeps exactly one ignore — RUSTSEC-2023-0071, with its
+  # reachability reasoning in the file. No advisory is ignored here.
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -128,11 +178,60 @@ jobs:
       - name: Run audit
         run: cargo audit
 
-  # Build production Docker image
+  # A failed nightly audit goes somewhere a human actually looks.
+  #
+  # A red run in the Actions tab is not, by itself, a check: a scheduled run has
+  # no actor, so GitHub has nobody to notify, and nobody browses that tab daily.
+  # This job opens — or, for a repeat failure, comments on — one issue carrying
+  # the run URL, so the failure outlives the night and can be assigned.
+  #
+  # `failure()` means it runs only when `audit` failed, and the event guard means
+  # only for timed runs: a push/PR audit failure is already attached to the commit
+  # or PR that caused it, and filing issues for those would be noise.
+  audit-alert:
+    name: Report Nightly Audit Failure
+    runs-on: ubuntu-latest
+    needs: [audit]
+    if: failure() && github.event_name == 'schedule'
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the nightly-failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Security audit failed on main (nightly RustSec run)
+        run: |
+          set -euo pipefail
+          body=$(printf '%s\n' \
+            "The nightly cargo-audit run on main FAILED." \
+            "" \
+            "- run: ${RUN_URL}" \
+            "- commit: ${GITHUB_SHA}" \
+            "- cause: at least one RustSec advisory now applies to the pinned Cargo.lock." \
+            "  Open the run and read the 'Run audit' step for the advisory ids." \
+            "" \
+            "Filed automatically by the audit-alert job in .github/workflows/ci.yml." \
+            "Repeat failures comment on this issue instead of filing a new one;" \
+            "close it once main's Cargo.lock no longer trips the audit.")
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"${TITLE}\" in:title" --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --repo "$GITHUB_REPOSITORY" --body "${body}"
+            echo "commented on existing issue #${existing}"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "${TITLE}" --body "${body}"
+          fi
+
+  # Build production Docker image (push / pull_request only — see the note above
+  # jobs). `needs` already skips this when lint/test are skipped, but the guard is
+  # explicit so the nightly can never start a Docker build.
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
     needs: [lint, test]
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v7
 
