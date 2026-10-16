@@ -171,12 +171,29 @@ impl AppState {
         let oidc = if config.oidc.enabled {
             match build_oidc_service(&config) {
                 Ok(service) => {
-                    tracing::info!(
-                        "OIDC provider enabled (issuer={}, clients={})",
-                        service.issuer,
-                        service.clients.len(),
-                    );
-                    Some(Arc::new(service))
+                    // Backward compatibility: the env-configured client is
+                    // upserted into the registry so installations that predate
+                    // the oidc_clients table keep working unchanged.
+                    match crate::db::models::oidc_client::upsert_legacy(
+                        db.inner(),
+                        &config.oidc.clients,
+                    )
+                    .await
+                    {
+                        Ok(count) => {
+                            tracing::info!(
+                                "OIDC provider enabled (issuer={}, signing_alg={}, legacy_clients={})",
+                                service.issuer,
+                                service.signing_alg_name(),
+                                count,
+                            );
+                            Some(Arc::new(service))
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to register the legacy OIDC client: {}", e);
+                            None
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::error!("Failed to initialize OIDC provider: {}", e);
@@ -222,6 +239,9 @@ impl AppState {
 /// `OIDC_SIGNING_KEY_FILE`. When neither is set a fresh ephemeral key is
 /// generated — fine for dev/tests, but the JWKS would change on restart, so
 /// production deployments MUST pin one.
+///
+/// When an RSA key is configured (`OIDC_RSA_KEY` / `OIDC_RSA_KEY_FILE`) the
+/// service signs every token RS256 with it instead of EdDSA.
 fn build_oidc_service(config: &crate::config::Config) -> Result<crate::auth::oidc::OidcService> {
     let seed: [u8; 32] = match config.oidc.signing_key_hex.as_deref() {
         Some(hex_str) => {
@@ -250,9 +270,9 @@ fn build_oidc_service(config: &crate::config::Config) -> Result<crate::auth::oid
 
     crate::auth::oidc::OidcService::new(
         config.oidc.issuer.clone(),
-        config.oidc.clients.clone(),
         seed,
-        std::time::Duration::from_secs(config.oidc.access_token_ttl),
-        std::time::Duration::from_secs(config.oidc.id_token_ttl),
+        Duration::from_secs(config.oidc.access_token_ttl),
+        Duration::from_secs(config.oidc.id_token_ttl),
+        config.oidc.rsa_key_pem.clone(),
     )
 }
