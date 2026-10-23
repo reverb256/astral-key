@@ -190,6 +190,10 @@ pub struct OidcConfig {
     pub access_token_ttl: u64,
     /// Lifetime of OIDC id_tokens (seconds).
     pub id_token_ttl: u64,
+    /// Lifetime of OIDC refresh tokens (seconds).
+    pub refresh_token_ttl: u64,
+    /// RSA private key in PEM format (from OIDC_RSA_KEY or OIDC_RSA_KEY_FILE).
+    pub rsa_key_pem: Option<String>,
 }
 
 impl Default for OidcConfig {
@@ -201,6 +205,8 @@ impl Default for OidcConfig {
             clients: Vec::new(),
             access_token_ttl: 3600,
             id_token_ttl: 600,
+            refresh_token_ttl: 604800,
+            rsa_key_pem: None,
         }
     }
 }
@@ -287,6 +293,16 @@ impl Config {
                 .map(|s| s.trim().to_string()),
         };
 
+        // RSA key: explicit PEM env first, then key file, then None.
+        let rsa_key_pem = match std::env::var("OIDC_RSA_KEY") {
+            Ok(k) if !k.is_empty() => Some(k),
+            _ => std::env::var("OIDC_RSA_KEY_FILE")
+                .ok()
+                .filter(|p| !p.is_empty())
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .map(|s| s.trim().to_string()),
+        };
+
         let client_id =
             std::env::var("OIDC_CLIENT_ID").unwrap_or_else(|_| "astral-key-oidc".to_string());
         let client_secret = std::env::var("OIDC_CLIENT_SECRET")
@@ -308,6 +324,7 @@ impl Config {
             enabled,
             issuer,
             signing_key_hex,
+            rsa_key_pem,
             clients: vec![OidcClientConfig {
                 client_id,
                 client_secret,
@@ -321,6 +338,10 @@ impl Config {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(600),
+            refresh_token_ttl: std::env::var("OIDC_REFRESH_TOKEN_TTL")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(604800),
         }
     }
 
