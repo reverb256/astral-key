@@ -181,12 +181,15 @@ historical — do not run it.
 
 ## Cluster topology
 
-| Node | Role | IP | Status |
-|------|------|----|--------|
-| nexus | k3s server + builder | 10.1.1.120 | Ready (k3s), MIS host |
-| forge | k3s server + mining | 10.1.1.130 | Unknown (post-reset) |
-| sentry | k3s server + inference | 10.1.1.140 | Unknown (bad Nix unit) |
-| zephyr | desktop + control | — | Worker |
+| Node | Role | Status |
+|------|------|--------|
+| nexus | k3s server + builder | Ready (k3s), MIS host |
+| forge | k3s server + mining | Unknown (post-reset) |
+| sentry | k3s server + inference | Unknown (bad Nix unit) |
+| zephyr | desktop + control | Worker |
+
+Addresses are deliberately not listed: this repository is public. They live in
+the private `reverb256/ops-log` inventory.
 
 ## Recent changes (2026-07-25)
 
@@ -254,8 +257,13 @@ operator decides.
 
 - Commit as `Reverb <129622142+reverb256@users.noreply.github.com>`.
 - Never commit with a real-name or ISP-provided address.
-- Never put the operator's real name, city, ISP mailbox, or the `10.1.1.x`
-  LAN plan into a tracked file.
+- Never put the operator's real name, city, ISP mailbox, or the home LAN
+  subnet plan into a tracked file.
+
+  (This line names no literal address on purpose: a leak-guard that scans for
+  the fleet's private subnet range flagged the earlier wording inside this very
+  block, which is how `reverb256/blog` and `reverb256/reverb256.github.io`
+  caught it. Keep the rule, drop the literal.)
 
 ### Before you push
 
