@@ -203,34 +203,42 @@ historical — do not run it.
 
 ---
 
-# Git hygiene rules for every agent on this fleet
+## Git hygiene rules for every agent on this fleet
 
-Status: shared rule block. Owner: Reverb. Source: `~/atlas-handoff/agent-git-rules.md`.
+Status: shared rule block. Paste into a repo's `AGENTS.md`, `CLAUDE.md`, or a
+profile's `SOUL.md`. Owner: Reverb. Added 2026-10-23 by fleet-leakguard.
+
+This block starts at H2 on purpose: pasting an H1 into a document that already
+has a title trips markdownlint MD025 (`single-h1`). Every fenced block here is
+fenced rather than indented so MD046 (`code-block-style`) stays clean in the
+host repo.
 
 These rules are mandatory for all Hermes profiles, bots, and delegated agents.
-They exist because an agent ran `git add -A` in a public repo and committed
-`.freebuff/` session databases that held live Cloudflare OAuth tokens plus the
-operator's real name and city.
+They exist because an agent ran `git add -A` in `reverb256.github.io` and
+committed `.freebuff/` session databases that held live Cloudflare OAuth tokens
+plus the operator's real name and city into a public repo (commit `051a6be`).
 
-## Stage explicit paths. Never stage a tree.
+### Stage explicit paths. Never stage a tree.
 
 - Use `git add <path> [<path> ...]` with the paths you actually changed.
 - Never run `git add -A`, `git add .`, `git add --all`, or `git commit -a`.
 - Never use `git stash --include-untracked` as a shortcut before staging.
 
-## Never commit tool or session state
+### Never commit tool or session state
 
 Forbidden in any commit, at any depth:
 
-    .freebuff/  .sisyphus/  .serena/  .playwright-mcp/  .codebuff/
-    .cursor/    .claude/    .aider*   .hermes/          .opencode/
-    .continue/  playwright-report/    .wrangler/        .dev.vars
-    *.db  *.db-wal  *.db-shm  *.sqlite*  .env*  *.pem  *.key
+```text
+.freebuff/  .sisyphus/  .serena/  .playwright-mcp/  .codebuff/
+.cursor/    .claude/    .aider*   .hermes/          .opencode/
+.continue/  playwright-report/    .wrangler/        .dev.vars
+*.db  *.db-wal  *.db-shm  *.sqlite*  .env*  *.pem  *.key
+```
 
 A global exclude file blocks most of these, but the exclude list is a net, not
 permission. If a path is not part of the change, do not stage it.
 
-## Do not bypass the gates
+### Do not bypass the gates
 
 - Never pass `--no-verify` to `git commit` or `git push`.
 - Never set `core.hooksPath` to an empty directory inside a repo.
@@ -242,17 +250,19 @@ permission. If a path is not part of the change, do not stage it.
 If a hook blocks work that is genuinely correct, stop and report it. The
 operator decides.
 
-## Identity
+### Identity
 
 - Commit as `Reverb <129622142+reverb256@users.noreply.github.com>`.
 - Never commit with a real-name or ISP-provided address.
-- Never put the operator's real name, city, ISP mailbox, or the private LAN plan
-  into a tracked file.
+- Never put the operator's real name, city, ISP mailbox, or the `10.1.1.x`
+  LAN plan into a tracked file.
 
-## Before you push
+### Before you push
 
-    git status --short          # read every line
-    git diff --cached --stat    # confirm the staged set
-    git log --oneline -3        # confirm the author identity
+```bash
+git status --short          # read every line
+git diff --cached --stat    # confirm the staged set
+git log --oneline -3        # confirm the author identity
+```
 
 Install check on a host: `bash ~/.config/git/leakguard/doctor.sh` (17 checks).
